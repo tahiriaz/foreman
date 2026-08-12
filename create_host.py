@@ -8,5 +8,5 @@ from functions import general
 RESOURCE_LIST = 'C:/Users/tahir/Downloads/Ressource List-v7.2.xlsx'
 SHEET_NAME = "General Resource List"
 
-general.provision_from_excel(RESOURCE_LIST, SHEET_NAME, 24, 25)
+general.provision_from_excel(RESOURCE_LIST, SHEET_NAME, 18, 19)
 

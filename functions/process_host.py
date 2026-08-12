@@ -11,9 +11,8 @@ domain_id = generic.get_resource_id(vars.FOREMAN_URL,"api/domains",vars.USER,var
 subnet_id = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,vars.SUBNET_BE)
 
 def create(host):
-    payload = create_payload(host)
-    # print(json.dumps(payload,indent=4))
-    try:
+   payload = create_payload(host)
+   try:
             response = requests.post(
                     f"{vars.FOREMAN_URL}/api/hosts", 
                     data=json.dumps(payload), 
@@ -28,7 +27,7 @@ def create(host):
             else:
                     print(f"Failed to create {host['hostname']}: {response.text}")
 
-    except Exception as e:
+   except Exception as e:
         print(f"Error processing row for {host['hostname']}: {e}")
 
 

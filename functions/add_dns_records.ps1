@@ -70,11 +70,16 @@ foreach ($row in $records) {
 
 
         # Check for existing record via the Session
-        $existing = Get-DnsServerResourceRecord -CimSession $session -ZoneName $currentZone -Name $shortName -RRType $type -ErrorAction SilentlyContinue
+        $existing = Get-DnsServerResourceRecord -CimSession $session -ZoneName $currentZone -Name $shortName -ErrorAction SilentlyContinue
 
         if ($existing) {
             Write-Host "Old record found. Deleting..." -ForegroundColor Yellow
-            Remove-DnsServerResourceRecord -CimSession $session -ZoneName $currentZone -Name $shortName -RRType $type -Force
+            # 3. Loop through each found record (in case there are multiple types)
+             foreach ($record in $existing) {
+                # Dynamically pass the exact RecordType found back into the Remove command
+                Remove-DnsServerResourceRecord -CimSession $session -ZoneName $currentZone -Name $shortName -RRType $record.RecordType -Force
+                Write-Output "Deleted $($record.RecordType) record for $shortName."
+            }
         }
 
         # Create new record via the Session
