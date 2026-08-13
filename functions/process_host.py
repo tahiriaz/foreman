@@ -18,7 +18,7 @@ def create(host):
                     data=json.dumps(payload), 
                     auth=(vars.USER,vars.PASSWORD), 
                     headers=HEADERS, 
-                    verify=False
+                    verify=True
             )
             if response.status_code == 201:
                     print(f"Successfully created {host['hostname']}")
@@ -261,7 +261,7 @@ def add_interface(payload,host):
 #                         data=json.dumps(payload), 
 #                         auth=(vars.USER,vars.PASSWORD), 
 #                         headers=HEADERS, 
-#                         verify=False
+#                         verify=True
 #                 )
 #                 if response.status_code == 201:
 #                         print(f"Successfully created {vm['logical_name']}")
