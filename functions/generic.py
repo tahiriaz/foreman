@@ -11,7 +11,7 @@ def get_resource_id(foreman_url,endpoint,user,password,name,key="name"):
         f"{foreman_url}/{endpoint}",
         auth=(user, password),
         params={f"search": f'{key} = "{name}"'}, 
-        verify=True
+        verify=False
     )
     results = response.json().get('results', [])
     if not results:

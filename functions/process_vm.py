@@ -40,7 +40,7 @@ def sched_ansible_role(hostname,delay):
                         auth=(vars.USER,vars.PASSWORD),
                         headers=HEADERS,
                         data=json.dumps(payload),
-                        verify=True
+                        verify=False
                 )
 
                 if response.status_code == 201:
@@ -59,7 +59,7 @@ def create(vm):
                         data=json.dumps(payload), 
                         auth=(vars.USER,vars.PASSWORD), 
                         headers=HEADERS, 
-                        verify=True
+                        verify=False
                 )
                 if response.status_code == 201:
                         print(f"Successfully created {vm['logical_name']}")
