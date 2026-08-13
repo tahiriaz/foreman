@@ -25,19 +25,20 @@ MTR_PXE_SUBNET = "mtr_nvr_pxe"
 RTR_PXE_SUBNET = "rtr_nvr_pxe"
 
 hg_map = {
-        "tvsvms" : "TVS",
-        "tvsnvr" : "NVR",
-        "cwdvca" : "VCA",
-        "cwdsdp" : "SDP",
-        "ucscis" : "UCS",
-        "ucsimg" : "UCS",
-        "ucscal" : "UCS",
-        "acscem" : "ACS",
-        "infsrv" : "IT",
-        "infvir" : "IT",
-        "infitc" : "IT",
-        "infims" : "IT",
-        "infics" : "IT",
-        "infids" : "IT",
-        "infsup" : "Supervision"
+        "tvsvms1" : "TVS",
+        "tvsnvr1" : "NVR",
+        "tvsnvr2" : "NVR2",
+        "cwdvca1" : "VCA",
+        "cwdsdp1" : "SDP",
+        "ucscis1" : "UCS",
+        "ucsimg1" : "UCS",
+        "ucscal1" : "UCS",
+        "acscem1" : "ACS",
+        "infsrv1" : "IT",
+        "infvir1" : "IT",
+        "infitc1" : "IT",
+        "infims1" : "IT",
+        "infics1" : "IT",
+        "infids1" : "IT",
+        "infsup1" : "Supervision"
 }

@@ -25,10 +25,10 @@ def provision_from_excel(file_path, sheet, start_row, end_row):
             if vm["equipment_type"] == resource:
                 if vm["type"] == 'phy':
                     process_host.create(vm)
-                # if vm["type"] == 'vm':
-                #     process_vm.create(vm)
-                # if vm["type"] == 'vip':
-                #     generic.create_dns_records(vm)
+                if vm["type"] == 'vm':
+                    process_vm.create(vm)
+                if vm["type"] == 'vip':
+                    generic.create_dns_records(vm)
 
     # for entry in vars.DNS_LIST:
     #     print(entry)

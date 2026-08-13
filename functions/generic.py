@@ -162,8 +162,8 @@ def gethost_parameters(parameter,ntp1,ntp2):
             rt_param_array.append(ntp2_list)
         return rt_param_array
 
-def gethostgroup(subs,func):
-        map = str(subs) + str(func)
+def gethostgroup(subs,func,vart):
+        map = str(subs) + str(func) + str(vart)
         for type, hg in vars.hg_map.items():
                 if map == type:
                         return hg

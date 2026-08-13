@@ -23,7 +23,7 @@ def create(host):
             if response.status_code == 201:
                     print(f"Successfully created {host['hostname']}")
                     # Temporary disabled creating DNS records for physical hosts
-                    # generic.create_dns_records(host)
+                    generic.create_dns_records(host)
             else:
                     print(f"Failed to create {host['hostname']}: {response.text}")
 
@@ -35,7 +35,7 @@ def create_payload(host):
         payload = {
             "host": {
                 "name": host["hostname"],
-                "hostgroup_id":generic.get_resource_id(vars.FOREMAN_URL,"api/v2/hostgroups",vars.USER,vars.PASSWORD,generic.gethostgroup(host["subsystems"],host["function"])),
+                "hostgroup_id":generic.get_resource_id(vars.FOREMAN_URL,"api/v2/hostgroups",vars.USER,vars.PASSWORD,generic.gethostgroup(host["subsystems"],host["function"],host["variation"])),
                 "build": True,
                 "managed": True,
                 "host_parameters_attributes": generic.gethost_parameters(host["foreman_parameters"],host["ntp1"],host["ntp2"]),

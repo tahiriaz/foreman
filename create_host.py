@@ -5,8 +5,8 @@ from functions import general
 
 # Foreman API configuration
 
-RESOURCE_LIST = 'C:/Users/tahir/Downloads/Ressource List-v7.2.xlsx'
+RESOURCE_LIST = 'C:/Users/tahir/Downloads/Ressource List-v7.3.xlsx'
 SHEET_NAME = "General Resource List"
 
-general.provision_from_excel(RESOURCE_LIST, SHEET_NAME, 18, 19)
+general.provision_from_excel(RESOURCE_LIST, SHEET_NAME, 174, 181)
 

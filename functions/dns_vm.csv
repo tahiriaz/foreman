@@ -1,7 +1,7 @@
 hostname,RecordType,Target
-tvsnvrapp002mp.mak.iss,A,10.101.28.12
-mtvsnvr002.mak.iss,CNAME,tvsnvrapp002mp.mak.iss
-tvsnvrapp002mp.me.mak.iss,CNAME,tvsnvrapp002mp.mak.iss
-tvsnvrapp002mp.fe.mak.iss,A,10.101.26.12
-tvsnvrapp002mp.be.mak.iss,A,10.101.30.12
-tvsnvrapp002mp.cl.mak.iss,A,10.101.44.12
+tvsnvrapp508mp.mak.iss,A,10.101.28.98
+mtvsnvr508.mak.iss,CNAME,tvsnvrapp508mp.mak.iss
+tvsnvrapp508mp.me.mak.iss,CNAME,tvsnvrapp508mp.mak.iss
+tvsnvrapp508mp.fe.mak.iss,A,10.101.26.98
+tvsnvrapp508mp.be.mak.iss,A,10.101.30.98
+tvsnvrapp508mp.cl.mak.iss,A,10.101.44.98

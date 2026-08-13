@@ -77,7 +77,7 @@ def create_payload(vm):
         payload = {
             "host": {
                 "name": vm["logical_name"],
-                "hostgroup_id":generic.get_resource_id(vars.FOREMAN_URL,"api/v2/hostgroups",vars.USER,vars.PASSWORD,generic.gethostgroup(vm["subsystems"],vm["function"])),
+                "hostgroup_id":generic.get_resource_id(vars.FOREMAN_URL,"api/v2/hostgroups",vars.USER,vars.PASSWORD,generic.gethostgroup(vm["subsystems"],vm["function"],vm["variation"])),
                 "compute_resource_id": compute_id,
                 "image_id": vars.IMAGE_NAME,
                 "provision_method": "image",
