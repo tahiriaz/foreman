@@ -78,18 +78,18 @@ foreach ($row in $records) {
              foreach ($record in $existing) {
                 # Dynamically pass the exact RecordType found back into the Remove command
                 Remove-DnsServerResourceRecord -CimSession $session -ZoneName $currentZone -Name $shortName -RRType $record.RecordType -Force
-                Write-Output "Deleted $($record.RecordType) record for $shortName."
+                Write-Output "Deleted $($record.RecordType) record for $shortName in zone $currentZone"
             }
         }
 
         # Create new record via the Session
         if ($type -eq "A") {
             Add-DnsServerResourceRecordA -CimSession $session -ZoneName $currentZone -Name $shortName -IPv4Address $target
-            Write-Host "A record created." -ForegroundColor Green
+            Write-Host "A record created for $shortName in zone $currentZone" -ForegroundColor Green
         }
         elseif ($type -eq "CNAME") {
             Add-DnsServerResourceRecordCName -CimSession $session -ZoneName $currentZone -Name $shortName -HostNameAlias $target
-            Write-Host "CNAME record created." -ForegroundColor Green
+            Write-Host "CNAME record created for $shortName in zone $currentZone" -ForegroundColor Green
         }
     }
     catch {

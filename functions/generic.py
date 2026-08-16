@@ -96,6 +96,9 @@ def check_a_or_cname(domain):
 
 def create_dns_records(vm):
         dns_array = ["hostname,RecordType,Target"]
+        if vm["ilo_hostname"] != "N.A" and vm["ilo_hostname"] != "NODATAFOUND" and vm["ilo_ip"] != "N.A" and vm["ilo_ip"] != "NODATAFOUND":
+            # iLO IP Address
+            dns_array.append(vm["ilo_hostname"] + ",A," + vm["ilo_ip"])
         if vm["fe_ip_address"] != "N.A" and vm["fe_ip_address"] != "NODATAFOUND" and vm["me_ip_address"] != "N.A" and vm["me_ip_address"] != "NODATAFOUND":
                 # Primary interface is ME
                 dns_array.append(vm["logical_name"] + ",A," + vm["me_ip_address"])
