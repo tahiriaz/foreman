@@ -1,0 +1,44 @@
+systemctl enable pcsd.service --now
+
+pcs host auth tvsnvrapp025rp.mak.iss tvsnvrapp026rp.mak.iss tvsnvrapp027rp.mak.iss tvsnvrapp028rp.mak.iss tvsnvrapp029rp.mak.iss tvsnvrapp030rp.mak.iss tvsnvrapp031rp.mak.iss tvsnvrapp032rp.mak.iss -u hacluster -p "Th@les01"
+
+pcs cluster setup CLNVRR030 --start \
+tvsnvrapp025rp addr=nan addr=10.102.28.43 \
+tvsnvrapp026rp addr=nan addr=10.102.28.44 \
+tvsnvrapp027rp addr=nan addr=10.102.28.45 \
+tvsnvrapp028rp addr=nan addr=10.102.28.46 \
+tvsnvrapp029rp addr=nan addr=10.102.28.47 \
+tvsnvrapp030rp addr=nan addr=10.102.28.48 \
+tvsnvrapp031rp addr=nan addr=10.102.28.49 \
+tvsnvrapp032rp addr=nan addr=10.102.28.50 \
+transport knet \
+link linknumber=0 link_priority=1 link linknumber=1 link_priority=0 \
+totem token=10000
+
+pcs cluster start --all
+pcs cluster enable --all
+
+pcs property set symmetric-cluster=true
+pcs property set placement-strategy=balanced
+pcs resource defaults update resource-stickiness=INFINITY migration-threshold=3 failure-timeout=1800s
+
+# Fencing Configuration
+pcs stonith create fence_tvsnvrapp025rp fence_ilo4 ip=10.102.18.207 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp025rp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp026rp fence_ilo4 ip=10.102.18.208 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp026rp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp027rp fence_ilo4 ip=10.102.18.209 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp027rp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp028rp fence_ilo4 ip=10.102.18.210 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp028rp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp029rp fence_ilo4 ip=10.102.18.211 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp029rp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp030rp fence_ilo4 ip=10.102.18.212 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp030rp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp031rp fence_ilo4 ip=10.102.18.213 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp031rp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp032rp fence_ilo4 ip=10.102.18.214 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp032rp op monitor interval=600s
+
+# Node Utilization Limits
+pcs node utilization tvsnvrapp025rp rcount=13
+pcs node utilization tvsnvrapp026rp rcount=13
+pcs node utilization tvsnvrapp027rp rcount=13
+pcs node utilization tvsnvrapp028rp rcount=13
+pcs node utilization tvsnvrapp029rp rcount=13
+pcs node utilization tvsnvrapp030rp rcount=13
+pcs node utilization tvsnvrapp031rp rcount=13
+pcs node utilization tvsnvrapp032rp rcount=13
+

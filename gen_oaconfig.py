@@ -22,7 +22,7 @@ snmp_community = "ISS-PUB"
 snmp_contact = "Aftab Ahmed"
 snmp_location = "Makkah"
 
-dc_resource_list = "Ressource List-v7.3.xlsx"
+dc_resource_list = "Resource List-v7.4.xlsx"
 config_template = "OACONFIG.j2"
 scope_var = "RTR"
 
