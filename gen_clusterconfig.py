@@ -6,7 +6,7 @@ import numpy as np
 # ==========================================
 # 1. User Defined Variables
 # ==========================================
-dc_resource_list = "Resource List-v7.4.xlsx"
+dc_resource_list = "Resource List-v7.5.xlsx"
 SHEET_NAME = "General Resource List"
 scope = "RTR"              # Change to "RTR" or your specific scope
 token_timeout = 10000
