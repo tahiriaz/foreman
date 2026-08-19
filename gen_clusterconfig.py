@@ -15,7 +15,7 @@ resource_count = 13
 ilo_username = "hpilofence"
 ilo_password = "Th@les01"
 vip_mask = 23
-vip_nic = "vlan126"
+vip_nic = "vlan226"
 
 mtr_nas_basedir = "ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/"
 rtr_nas_basedir = "ssip.rtr-rec.infstonas001rp.mak.iss:/ifs/infstonas001rp/rtr-rec/"

@@ -45,7 +45,7 @@ pcs node utilization tvsissapp056rp rcount=13
 # ---------------------------------------------------------
 # Storage & VIP for clnvrr061
 # ---------------------------------------------------------
-pcs resource create clnvrr061-vip ocf:heartbeat:IPaddr2 ip=10.102.27.59 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource create clnvrr061-vip ocf:heartbeat:IPaddr2 ip=10.102.27.59 cidr_netmask=23 nic=vlan226 op monitor interval=60s
 pcs resource utilization clnvrr061-vip rcount=1
 
 # Core Resource Group
@@ -78,7 +78,7 @@ pcs constraint order start rg-clnvrr061-core then set clnvrr061-nfsrec01 clnvrr0
 # ---------------------------------------------------------
 # Storage & VIP for clnvrr062
 # ---------------------------------------------------------
-pcs resource create clnvrr062-vip ocf:heartbeat:IPaddr2 ip=10.102.27.60 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource create clnvrr062-vip ocf:heartbeat:IPaddr2 ip=10.102.27.60 cidr_netmask=23 nic=vlan226 op monitor interval=60s
 pcs resource utilization clnvrr062-vip rcount=1
 
 # Core Resource Group
@@ -111,7 +111,7 @@ pcs constraint order start rg-clnvrr062-core then set clnvrr062-nfsrec01 clnvrr0
 # ---------------------------------------------------------
 # Storage & VIP for clnvrr063
 # ---------------------------------------------------------
-pcs resource create clnvrr063-vip ocf:heartbeat:IPaddr2 ip=10.102.27.61 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource create clnvrr063-vip ocf:heartbeat:IPaddr2 ip=10.102.27.61 cidr_netmask=23 nic=vlan226 op monitor interval=60s
 pcs resource utilization clnvrr063-vip rcount=1
 
 # Core Resource Group
@@ -144,7 +144,7 @@ pcs constraint order start rg-clnvrr063-core then set clnvrr063-nfsrec01 clnvrr0
 # ---------------------------------------------------------
 # Storage & VIP for clnvrr064
 # ---------------------------------------------------------
-pcs resource create clnvrr064-vip ocf:heartbeat:IPaddr2 ip=10.102.27.62 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource create clnvrr064-vip ocf:heartbeat:IPaddr2 ip=10.102.27.62 cidr_netmask=23 nic=vlan226 op monitor interval=60s
 pcs resource utilization clnvrr064-vip rcount=1
 
 # Core Resource Group
@@ -177,7 +177,7 @@ pcs constraint order start rg-clnvrr064-core then set clnvrr064-nfsrec01 clnvrr0
 # ---------------------------------------------------------
 # Storage & VIP for clnvrr065
 # ---------------------------------------------------------
-pcs resource create clnvrr065-vip ocf:heartbeat:IPaddr2 ip=10.102.27.63 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource create clnvrr065-vip ocf:heartbeat:IPaddr2 ip=10.102.27.63 cidr_netmask=23 nic=vlan226 op monitor interval=60s
 pcs resource utilization clnvrr065-vip rcount=1
 
 # Core Resource Group
@@ -210,7 +210,7 @@ pcs constraint order start rg-clnvrr065-core then set clnvrr065-nfsrec01 clnvrr0
 # ---------------------------------------------------------
 # Storage & VIP for clnvrr066
 # ---------------------------------------------------------
-pcs resource create clnvrr066-vip ocf:heartbeat:IPaddr2 ip=10.102.27.64 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource create clnvrr066-vip ocf:heartbeat:IPaddr2 ip=10.102.27.64 cidr_netmask=23 nic=vlan226 op monitor interval=60s
 pcs resource utilization clnvrr066-vip rcount=1
 
 # Core Resource Group
@@ -243,7 +243,7 @@ pcs constraint order start rg-clnvrr066-core then set clnvrr066-nfsrec01 clnvrr0
 # ---------------------------------------------------------
 # Storage & VIP for clnvrr067
 # ---------------------------------------------------------
-pcs resource create clnvrr067-vip ocf:heartbeat:IPaddr2 ip=10.102.27.65 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource create clnvrr067-vip ocf:heartbeat:IPaddr2 ip=10.102.27.65 cidr_netmask=23 nic=vlan226 op monitor interval=60s
 pcs resource utilization clnvrr067-vip rcount=1
 
 # Core Resource Group
