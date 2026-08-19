@@ -19,6 +19,9 @@ OA_PASSWORD = "Siljeddah15"
 ILO_LOGIN = "admin"
 ILO_PASSWORD = "password"
 
+# Replace with your 25-character iLO 4 Advanced License Key
+ILO_ADVANCED_LICENSE_KEY = "35SCR-RYLML-CBK7N-TD3B9-GGBW2"
+
 FENCE_USER_NAME = "Pacemaker Fence"
 FENCE_USER_LOGIN = "hpilofence"
 FENCE_USER_PASSWORD = "Th@les01"
@@ -42,10 +45,9 @@ SCOPE_SETTINGS = {
         "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss"
     },
     "RTR": {
-        # Update these values with the correct settings for RTR
-        "PRIMARY_DNS": "10.130.4.11", 
-        "SECONDARY_DNS": "10.130.4.12",
-        "DIRECTORY_SERVER": "INFCOSADU001RP.mak.iss"
+        "PRIMARY_DNS": "10.130.3.11", 
+        "SECONDARY_DNS": "10.130.3.12",
+        "DIRECTORY_SERVER": "INFCOSADU002MP.mak.iss"
     }
 }
 
@@ -53,7 +55,7 @@ SCOPE_SETTINGS = {
 # SETTINGS & PATHS
 # ============================================================================
 
-DEBUG_MODE = 1
+DEBUG_MODE = 0
 
 SSH_PORT = 22
 SSH_CONNECT_TIMEOUT = 15
@@ -81,6 +83,7 @@ def render_template(add_user, apply_ipmi_config, scope_data, server_name, server
     env = create_jinja_environment()
     template = env.get_template(TEMPLATE_FILE)
     return template.render(
+        ilo_license_key=ILO_ADVANCED_LICENSE_KEY,
         add_user=add_user,
         apply_ipmi_config=apply_ipmi_config,
         ilo_login=ILO_LOGIN, ilo_password=ILO_PASSWORD,
@@ -240,20 +243,17 @@ def main():
 
     print(f"\nLoading inventory from '{EXCEL_FILE}'...")
     try:
-        df = pd.read_excel(EXCEL_FILE, sheet_name="General Resource List")
-        # Normalize column names to lowercase and strip whitespace
+        df = pd.read_excel(EXCEL_FILE, sheet_name="General Resource List", engine="openpyxl")
         df.columns = [str(c).strip().lower() for c in df.columns]
     except Exception as e:
         print(f"ERROR: Failed to read Excel file: {e}")
         return 1
 
-    # Filter for the target enclosure
     enc_df = df[df['enclosure_physical_name'] == enclosure_input]
     if enc_df.empty:
         print(f"ERROR: Enclosure '{enclosure_input}' not found in inventory.")
         return 1
 
-    # Find OA IP Addresses
     oa_df = enc_df[enc_df['equipment_type'] == 'Enclosure OA']
     
     primary_oa_ip = None
@@ -272,7 +272,6 @@ def main():
         print(f"ERROR: No OA IP addresses found for enclosure '{enclosure_input}'.")
         return 1
 
-    # Establish OA Connection
     oa = OAConnection(username=OA_USERNAME, password=OA_PASSWORD, port=SSH_PORT)
     connected = False
     
@@ -292,7 +291,6 @@ def main():
         print("\nERROR: Could not connect to any OA. Exiting.")
         return 1
 
-    # Find Blade Servers
     blade_df = enc_df[enc_df['equipment_type'].astype(str).str.contains('Blade Server', na=False, case=False)]
     
     if blade_df.empty:
@@ -302,12 +300,10 @@ def main():
 
     print(f"\nFound {len(blade_df)} Blade Server(s) in enclosure '{enclosure_input}'. Beginning configuration...\n")
 
-    # Iterate and configure each blade
     try:
         for idx, row in blade_df.iterrows():
             print("-" * 78)
             
-            # Validate required fields
             missing_fields = []
             required_cols = ['enclosure_slot', 'scope', 'hostname', 'ilo_hostname']
             
@@ -326,7 +322,6 @@ def main():
                 print(f"WARNING: Skipping Blade in Bay {bay_number}. Missing required fields: {', '.join(missing_fields)}")
                 continue
 
-            # Extract validated fields
             scope = str(row['scope']).strip().upper()
             server_name = str(row['hostname']).strip()
             server_fqdn = str(row['ilo_hostname']).strip()
@@ -338,17 +333,14 @@ def main():
             print(f"Configuring Bay {bay_number} | Server: {server_name} | Scope: {scope}")
             scope_data = SCOPE_SETTINGS[scope]
 
-            # 1. Check user
             user_exists = check_fence_user(oa, bay_number)
             if user_exists:
                 print(f"  -> User '{FENCE_USER_LOGIN}' exists. Skipping creation.")
             else:
                 print(f"  -> User '{FENCE_USER_LOGIN}' missing. Queuing creation.")
 
-            # 2. Check IPMI
             apply_ipmi = check_ipmi_settings(oa, bay_number)
 
-            # 3. Render and Push
             ribcl = render_template(
                 add_user=not user_exists, 
                 apply_ipmi_config=apply_ipmi,

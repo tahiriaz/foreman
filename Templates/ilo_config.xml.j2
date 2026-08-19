@@ -1,6 +1,17 @@
 <RIBCL VERSION="2.0">
   <LOGIN USER_LOGIN="{{ ilo_login }}" PASSWORD="{{ ilo_password }}">
 
+{% if ilo_license_key %}
+    <!-- ============================================================ -->
+    <!-- iLO ADVANCED LICENSE                                         -->
+    <!-- ============================================================ -->
+    <RIB_INFO MODE="write">
+      <LICENSE>
+        <ACTIVATE KEY="{{ ilo_license_key }}"/>
+      </LICENSE>
+    </RIB_INFO>
+{% endif %}
+
 {% if add_user %}
     <USER_INFO MODE="write">
       <ADD_USER
@@ -73,7 +84,7 @@ oofow7ITSNGvcyuKN72PnYGhjyediWesyKzc/07SMuNx3OLi5B3EF3kJmKlgY5CJ
 hjnFnqTK2kYDSrNZbOjyrwQHEJmeZASyuCkC/A9VtlBTVBTfgKrF5UWgUN2JLHGr
 bCkXHrxPdWDR/pBzDYHanZx4sCXA2t+ZDiqQ/itIzbFQ9HWoI6qTFCk6mQ9Orbp+
 OdnYQpIF/6Ha49xdwFtymo2lqc3jWDCWcs9wEOoGTFYtmMzkYOWKZT/bPTuy6qqZ
-zY+qdoKjG2pwc30UaPrKEtouTKWCtKyUqbrQbY5CguU6vCbW7k4h+aox5IO7zLHQ
+z+YqdoKjG2pwc30UaPrKEtouTKWCtKyUqbrQbY5CguU6vCbW7k4h+aox5IO7zLHQ
 a/iX20iG6spJRFUhl8NNZqSWJZ68Tt+Qn7F7gOPI0Odf6cXiU7FmM/Xx93U6ZDEC
 AwEAAaN4MHYwCwYDVR0PBAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYE
 FPWhjC3FtpG8b2/+vg02roGBmvs3MBIGCSsGAQQBgjcVAQQFAgMBAAEwIwYJKwYB
@@ -86,9 +97,9 @@ D6py7r5GKdJ+6vo3vF6DhU41m8LVfoI/iy+siFlscsm3VinCYz/ucbTdZFIEIovh
 fhTERfkAPqgh+RbFsEImi1qA7VdbLBeMTA6h1dBr+8fXgs1zdWzxOKBKcBaxUtqD
 YEe1I4FqKGReDov+x/9qinzZ4BaPrIM4bzQ0D24YwkULKaYZDQ5ZklOk3F1Sjugb
 Jv+o+FvYx8Xe8gKeDMAwcfLXX/vY+BforPPSlAxjtH99MvF9rN82xkag1Ay71fg/
-UxjNSkwVDUPoNi9Cf2mL3Kr1vUpX0MljU45YtR+fWeQlLRKmQwcQ0Qs9F5+kWIQQ
+UxjNSkwVDUPoNi9Cf2m3LKr1vUpX0MljU45YtR+fWeQlLRKmQwcQ0Qs9F5+kWIQQ
 24Ifktqeaft23VT1Xh8SE5207mz2yd3JjA4nCq+OrnWPFBF5QpRCZNv0E+4Pmiv7
-SctJf7EcDCTZI/lnuTDwlMJ0zDJsCyaSGqp1ymfI2zz/hQ==
+SctJf7EcDCTZI/lnuTDwlMJz0DJsCyaSGqp1ymfI2zz/hQ==
 -----END CERTIFICATE-----
 
       </IMPORT_LDAP_CA_CERTIFICATE>
