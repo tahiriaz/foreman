@@ -3,14 +3,14 @@ systemctl enable pcsd.service --now
 pcs host auth tvsnvrapp009mp.mak.iss tvsnvrapp010mp.mak.iss tvsnvrapp011mp.mak.iss tvsnvrapp012mp.mak.iss tvsnvrapp013mp.mak.iss tvsnvrapp014mp.mak.iss tvsnvrapp015mp.mak.iss tvsnvrapp016mp.mak.iss -u hacluster -p "Th@les01"
 
 pcs cluster setup CLNVRM010 --start \
-tvsnvrapp009mp addr=nan addr=10.101.28.19 \
-tvsnvrapp010mp addr=nan addr=10.101.28.20 \
-tvsnvrapp011mp addr=nan addr=10.101.28.21 \
-tvsnvrapp012mp addr=nan addr=10.101.28.22 \
-tvsnvrapp013mp addr=nan addr=10.101.28.23 \
-tvsnvrapp014mp addr=nan addr=10.101.28.24 \
-tvsnvrapp015mp addr=nan addr=10.101.28.25 \
-tvsnvrapp016mp addr=nan addr=10.101.28.26 \
+tvsnvrapp009mp addr=10.101.44.19 addr=10.101.28.19 \
+tvsnvrapp010mp addr=10.101.44.20 addr=10.101.28.20 \
+tvsnvrapp011mp addr=10.101.44.21 addr=10.101.28.21 \
+tvsnvrapp012mp addr=10.101.44.22 addr=10.101.28.22 \
+tvsnvrapp013mp addr=10.101.44.23 addr=10.101.28.23 \
+tvsnvrapp014mp addr=10.101.44.24 addr=10.101.28.24 \
+tvsnvrapp015mp addr=10.101.44.25 addr=10.101.28.25 \
+tvsnvrapp016mp addr=10.101.44.26 addr=10.101.28.26 \
 transport knet \
 link linknumber=0 link_priority=1 link linknumber=1 link_priority=0 \
 totem token=10000

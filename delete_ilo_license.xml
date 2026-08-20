@@ -1,0 +1,11 @@
+hponcfg 13 << end_marker
+<RIBCL VERSION="2.0">
+  <LOGIN USER_LOGIN="admin" PASSWORD="password">
+    <RIB_INFO MODE="write">
+      <LICENSE>
+        <DEACTIVATE/>
+      </LICENSE>
+    </RIB_INFO>
+  </LOGIN>
+</RIBCL>
+end_marker

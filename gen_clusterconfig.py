@@ -1,27 +1,36 @@
 import os
 import pandas as pd
 import re
-import numpy as np
 
 # ==========================================
-# 1. User Defined Variables
+# 1. User Defined Variables & Dictionaries
 # ==========================================
-dc_resource_list = "Resource List-v7.5.xlsx"
+dc_resource_list = "Resource List-v7.6.xlsx"
 SHEET_NAME = "General Resource List"
-scope = "RTR"              # Change to "RTR" or your specific scope
 token_timeout = 10000
 ha_pass = "Th@les01"
 resource_count = 13        
 ilo_username = "hpilofence"
 ilo_password = "Th@les01"
-vip_mask = 23
-vip_nic = "vlan226"
-
-mtr_nas_basedir = "ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/"
-rtr_nas_basedir = "ssip.rtr-rec.infstonas001rp.mak.iss:/ifs/infstonas001rp/rtr-rec/"
 
 # Systemd Variables
 sv_picata_config_update = "systemd:configuration-updater"
+
+# Scope-based Configuration Dictionary
+scope_config = {
+    'mtr': {
+        'nas_basedir': "ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/",
+        'vip_nic': "vlan126",
+        'vip_mask': 23,
+        'cluster_prefix': "clnvrm"
+    },
+    'rtr': {
+        'nas_basedir': "ssip.rtr-rec.infstonas001rp.mak.iss:/ifs/infstonas001rp/rtr-rec/",
+        'vip_nic': "vlan226", 
+        'vip_mask': 23,
+        'cluster_prefix': "clnvrr"
+    }
+}
 
 # ==========================================
 # 2. Path Setup
@@ -53,10 +62,10 @@ if missing_cols:
 
 # Filter Blade Servers
 df_blades = df[
-    (df['scope'].astype(str).str.strip().str.lower() == scope.lower()) & 
     (df['equipment_type'].astype(str).str.strip().str.lower() == "nvr blade server") & 
     (df['enclosure_physical_name'].notna()) & 
-    (~df['enclosure_physical_name'].astype(str).str.strip().str.lower().isin(['n.a', 'n/a', 'nan', '']))
+    (~df['enclosure_physical_name'].astype(str).str.strip().str.lower().isin(['n.a', 'n/a', 'nan', ''])) &
+    (df['scope'].notna())
 ].copy()
 
 # Filter VIPs
@@ -71,12 +80,15 @@ if df_blades.empty:
     exit()
 
 # ==========================================
-# 4. Determine Cluster Names
+# 4. Determine Cluster Names Dynamically
 # ==========================================
-scope_char = str(scope)[0].lower() if scope else 'x'
-cluster_prefix = f"clnvr{scope_char}"
-
-def determine_cluster_name(logical_name_val):
+def determine_cluster_name(row):
+    logical_name_val = row['logical_name']
+    scope_val = str(row['scope']).strip().lower()
+    
+    # Retrieve cluster_prefix from dictionary, default to unknown if not found
+    cluster_prefix = scope_config.get(scope_val, {}).get('cluster_prefix', 'clnvr_unknown')
+    
     match = re.search(r'\d+', str(logical_name_val))
     if match:
         node_num = int(match.group())
@@ -84,20 +96,27 @@ def determine_cluster_name(logical_name_val):
         return f"{cluster_prefix}{cluster_index:03d}"
     return f"{cluster_prefix}_unknown"
 
-df_blades['cluster_name'] = df_blades['logical_name'].apply(determine_cluster_name)
+df_blades['cluster_name'] = df_blades.apply(determine_cluster_name, axis=1)
 
 # ==========================================
 # 5. Generate Cluster Scripts (Line by Line)
 # ==========================================
-nas_basedir = mtr_nas_basedir if scope.lower() == 'mtr' else rtr_nas_basedir
-
 grouped = df_blades.groupby(['enclosure_physical_name', 'cluster_name'])
 
 for (enclosure_name, cluster_name), group in grouped:
     group = group.sort_values('logical_name')
     
-    # Calculate shortname prefix (e.g. clnvrm010 -> clnvrm01)
-    cluster_shortname_prefix = cluster_name[:-1]
+    # Extract the scope for this specific group to pull from dictionary
+    current_scope = str(group['scope'].iloc[0]).strip().lower()
+    
+    if current_scope not in scope_config:
+        print(f"[WARNING] Scope '{current_scope}' not found in dictionary! Skipping cluster {cluster_name}.")
+        continue
+        
+    nas_basedir = scope_config[current_scope]['nas_basedir']
+    vip_nic = scope_config[current_scope]['vip_nic']
+    vip_mask = scope_config[current_scope]['vip_mask']
+    cluster_prefix = scope_config[current_scope]['cluster_prefix']
     
     safe_enclosure_name = str(enclosure_name).replace("/", "-").replace("\\", "-")
     cluster_dir = os.path.join(output_dir, f"{cluster_name}_{safe_enclosure_name}")
@@ -138,23 +157,19 @@ for (enclosure_name, cluster_name), group in grouped:
         c_idx = int(match.group())
         expected_aliases = [f"{cluster_prefix}{c_idx + i:03d}" for i in range(1, 8)]
         
-        # We ensure cluster_name is explicitly lowercase for the mount path
         c_name_lower = cluster_name.lower()
         
         # Get VIPs for this specific cluster
         cluster_vip_rows = df_vips[df_vips['alias'].astype(str).str.strip().str.lower().isin(expected_aliases)]
         found_aliases = cluster_vip_rows['alias'].astype(str).str.strip().str.lower().tolist()
         
-        # Check for any missing VIPs
         missing_vips = [alias for alias in expected_aliases if alias not in found_aliases]
         if missing_vips:
             print(f"[WARNING] Cluster {cluster_name}: Missing VIPs in Excel! Could not find: {', '.join(missing_vips)}")
         
-        # Loop strictly over the EXPECTED aliases to guarantee correct ordering 1-7
         for alias in expected_aliases:
             v_row_df = cluster_vip_rows[cluster_vip_rows['alias'].astype(str).str.strip().str.lower() == alias]
             
-            # If the VIP isn't in Excel, skip generating resources for it
             if v_row_df.empty:
                 continue
                 

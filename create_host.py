@@ -10,7 +10,7 @@ from functions import general
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Build the path to the Templates folder relative to the script
-RESOURCE_LIST = os.path.join(SCRIPT_DIR, 'Templates', 'Resource List-v7.4.xlsx')
+RESOURCE_LIST = os.path.join(SCRIPT_DIR, 'Templates', 'Resource List-v7.6.xlsx')
 SHEET_NAME = "General Resource List"
 
 general.provision_from_excel(RESOURCE_LIST, SHEET_NAME, 174, 181)

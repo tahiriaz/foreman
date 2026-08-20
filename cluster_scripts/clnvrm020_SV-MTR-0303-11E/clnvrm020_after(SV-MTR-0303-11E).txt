@@ -1,5 +1,215 @@
 
 # ---------------------------------------------------------
+# Application Services for clnvrm021
+# ---------------------------------------------------------
+pcs resource create clnvrm021-pctcfg-updater systemd:configuration-updater op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm021-pctcfg-updater rcount=1
+pcs constraint colocation add clnvrm021-pctcfg-updater with clnvrm021-vip score=INFINITY
+
+pcs resource create clnvrm021-picata01 systemd:picata-clnvrm021_p01 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm021-picata01 rcount=1
+pcs constraint colocation add clnvrm021-picata01 with clnvrm021-vip score=INFINITY
+
+pcs resource create clnvrm021-picata02 systemd:picata-clnvrm021_p02 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm021-picata02 rcount=1
+pcs constraint colocation add clnvrm021-picata02 with clnvrm021-vip score=INFINITY
+
+pcs resource create clnvrm021-picata03 systemd:picata-clnvrm021_p03 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm021-picata03 rcount=1
+pcs constraint colocation add clnvrm021-picata03 with clnvrm021-vip score=INFINITY
+
+pcs resource create clnvrm021-picata04 systemd:picata-clnvrm021_p04 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm021-picata04 rcount=1
+pcs constraint colocation add clnvrm021-picata04 with clnvrm021-vip score=INFINITY
+
+# Order constraints for Applications
+pcs constraint order start rg-clnvrm021-core then set clnvrm021-pctcfg-updater clnvrm021-picata01 clnvrm021-picata02 clnvrm021-picata03 clnvrm021-picata04 sequential=false
+pcs constraint order clnvrm021-nfsrec01 then clnvrm021-picata01
+pcs constraint order clnvrm021-nfsrec02 then clnvrm021-picata02
+pcs constraint order clnvrm021-nfsrec03 then clnvrm021-picata03
+pcs constraint order clnvrm021-nfsrec04 then clnvrm021-picata04
+
+# ---------------------------------------------------------
+# Application Services for clnvrm022
+# ---------------------------------------------------------
+pcs resource create clnvrm022-pctcfg-updater systemd:configuration-updater op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm022-pctcfg-updater rcount=1
+pcs constraint colocation add clnvrm022-pctcfg-updater with clnvrm022-vip score=INFINITY
+
+pcs resource create clnvrm022-picata01 systemd:picata-clnvrm022_p01 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm022-picata01 rcount=1
+pcs constraint colocation add clnvrm022-picata01 with clnvrm022-vip score=INFINITY
+
+pcs resource create clnvrm022-picata02 systemd:picata-clnvrm022_p02 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm022-picata02 rcount=1
+pcs constraint colocation add clnvrm022-picata02 with clnvrm022-vip score=INFINITY
+
+pcs resource create clnvrm022-picata03 systemd:picata-clnvrm022_p03 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm022-picata03 rcount=1
+pcs constraint colocation add clnvrm022-picata03 with clnvrm022-vip score=INFINITY
+
+pcs resource create clnvrm022-picata04 systemd:picata-clnvrm022_p04 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm022-picata04 rcount=1
+pcs constraint colocation add clnvrm022-picata04 with clnvrm022-vip score=INFINITY
+
+# Order constraints for Applications
+pcs constraint order start rg-clnvrm022-core then set clnvrm022-pctcfg-updater clnvrm022-picata01 clnvrm022-picata02 clnvrm022-picata03 clnvrm022-picata04 sequential=false
+pcs constraint order clnvrm022-nfsrec01 then clnvrm022-picata01
+pcs constraint order clnvrm022-nfsrec02 then clnvrm022-picata02
+pcs constraint order clnvrm022-nfsrec03 then clnvrm022-picata03
+pcs constraint order clnvrm022-nfsrec04 then clnvrm022-picata04
+
+# ---------------------------------------------------------
+# Application Services for clnvrm023
+# ---------------------------------------------------------
+pcs resource create clnvrm023-pctcfg-updater systemd:configuration-updater op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm023-pctcfg-updater rcount=1
+pcs constraint colocation add clnvrm023-pctcfg-updater with clnvrm023-vip score=INFINITY
+
+pcs resource create clnvrm023-picata01 systemd:picata-clnvrm023_p01 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm023-picata01 rcount=1
+pcs constraint colocation add clnvrm023-picata01 with clnvrm023-vip score=INFINITY
+
+pcs resource create clnvrm023-picata02 systemd:picata-clnvrm023_p02 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm023-picata02 rcount=1
+pcs constraint colocation add clnvrm023-picata02 with clnvrm023-vip score=INFINITY
+
+pcs resource create clnvrm023-picata03 systemd:picata-clnvrm023_p03 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm023-picata03 rcount=1
+pcs constraint colocation add clnvrm023-picata03 with clnvrm023-vip score=INFINITY
+
+pcs resource create clnvrm023-picata04 systemd:picata-clnvrm023_p04 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm023-picata04 rcount=1
+pcs constraint colocation add clnvrm023-picata04 with clnvrm023-vip score=INFINITY
+
+# Order constraints for Applications
+pcs constraint order start rg-clnvrm023-core then set clnvrm023-pctcfg-updater clnvrm023-picata01 clnvrm023-picata02 clnvrm023-picata03 clnvrm023-picata04 sequential=false
+pcs constraint order clnvrm023-nfsrec01 then clnvrm023-picata01
+pcs constraint order clnvrm023-nfsrec02 then clnvrm023-picata02
+pcs constraint order clnvrm023-nfsrec03 then clnvrm023-picata03
+pcs constraint order clnvrm023-nfsrec04 then clnvrm023-picata04
+
+# ---------------------------------------------------------
+# Application Services for clnvrm024
+# ---------------------------------------------------------
+pcs resource create clnvrm024-pctcfg-updater systemd:configuration-updater op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm024-pctcfg-updater rcount=1
+pcs constraint colocation add clnvrm024-pctcfg-updater with clnvrm024-vip score=INFINITY
+
+pcs resource create clnvrm024-picata01 systemd:picata-clnvrm024_p01 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm024-picata01 rcount=1
+pcs constraint colocation add clnvrm024-picata01 with clnvrm024-vip score=INFINITY
+
+pcs resource create clnvrm024-picata02 systemd:picata-clnvrm024_p02 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm024-picata02 rcount=1
+pcs constraint colocation add clnvrm024-picata02 with clnvrm024-vip score=INFINITY
+
+pcs resource create clnvrm024-picata03 systemd:picata-clnvrm024_p03 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm024-picata03 rcount=1
+pcs constraint colocation add clnvrm024-picata03 with clnvrm024-vip score=INFINITY
+
+pcs resource create clnvrm024-picata04 systemd:picata-clnvrm024_p04 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm024-picata04 rcount=1
+pcs constraint colocation add clnvrm024-picata04 with clnvrm024-vip score=INFINITY
+
+# Order constraints for Applications
+pcs constraint order start rg-clnvrm024-core then set clnvrm024-pctcfg-updater clnvrm024-picata01 clnvrm024-picata02 clnvrm024-picata03 clnvrm024-picata04 sequential=false
+pcs constraint order clnvrm024-nfsrec01 then clnvrm024-picata01
+pcs constraint order clnvrm024-nfsrec02 then clnvrm024-picata02
+pcs constraint order clnvrm024-nfsrec03 then clnvrm024-picata03
+pcs constraint order clnvrm024-nfsrec04 then clnvrm024-picata04
+
+# ---------------------------------------------------------
+# Application Services for clnvrm025
+# ---------------------------------------------------------
+pcs resource create clnvrm025-pctcfg-updater systemd:configuration-updater op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm025-pctcfg-updater rcount=1
+pcs constraint colocation add clnvrm025-pctcfg-updater with clnvrm025-vip score=INFINITY
+
+pcs resource create clnvrm025-picata01 systemd:picata-clnvrm025_p01 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm025-picata01 rcount=1
+pcs constraint colocation add clnvrm025-picata01 with clnvrm025-vip score=INFINITY
+
+pcs resource create clnvrm025-picata02 systemd:picata-clnvrm025_p02 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm025-picata02 rcount=1
+pcs constraint colocation add clnvrm025-picata02 with clnvrm025-vip score=INFINITY
+
+pcs resource create clnvrm025-picata03 systemd:picata-clnvrm025_p03 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm025-picata03 rcount=1
+pcs constraint colocation add clnvrm025-picata03 with clnvrm025-vip score=INFINITY
+
+pcs resource create clnvrm025-picata04 systemd:picata-clnvrm025_p04 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm025-picata04 rcount=1
+pcs constraint colocation add clnvrm025-picata04 with clnvrm025-vip score=INFINITY
+
+# Order constraints for Applications
+pcs constraint order start rg-clnvrm025-core then set clnvrm025-pctcfg-updater clnvrm025-picata01 clnvrm025-picata02 clnvrm025-picata03 clnvrm025-picata04 sequential=false
+pcs constraint order clnvrm025-nfsrec01 then clnvrm025-picata01
+pcs constraint order clnvrm025-nfsrec02 then clnvrm025-picata02
+pcs constraint order clnvrm025-nfsrec03 then clnvrm025-picata03
+pcs constraint order clnvrm025-nfsrec04 then clnvrm025-picata04
+
+# ---------------------------------------------------------
+# Application Services for clnvrm026
+# ---------------------------------------------------------
+pcs resource create clnvrm026-pctcfg-updater systemd:configuration-updater op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm026-pctcfg-updater rcount=1
+pcs constraint colocation add clnvrm026-pctcfg-updater with clnvrm026-vip score=INFINITY
+
+pcs resource create clnvrm026-picata01 systemd:picata-clnvrm026_p01 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm026-picata01 rcount=1
+pcs constraint colocation add clnvrm026-picata01 with clnvrm026-vip score=INFINITY
+
+pcs resource create clnvrm026-picata02 systemd:picata-clnvrm026_p02 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm026-picata02 rcount=1
+pcs constraint colocation add clnvrm026-picata02 with clnvrm026-vip score=INFINITY
+
+pcs resource create clnvrm026-picata03 systemd:picata-clnvrm026_p03 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm026-picata03 rcount=1
+pcs constraint colocation add clnvrm026-picata03 with clnvrm026-vip score=INFINITY
+
+pcs resource create clnvrm026-picata04 systemd:picata-clnvrm026_p04 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm026-picata04 rcount=1
+pcs constraint colocation add clnvrm026-picata04 with clnvrm026-vip score=INFINITY
+
+# Order constraints for Applications
+pcs constraint order start rg-clnvrm026-core then set clnvrm026-pctcfg-updater clnvrm026-picata01 clnvrm026-picata02 clnvrm026-picata03 clnvrm026-picata04 sequential=false
+pcs constraint order clnvrm026-nfsrec01 then clnvrm026-picata01
+pcs constraint order clnvrm026-nfsrec02 then clnvrm026-picata02
+pcs constraint order clnvrm026-nfsrec03 then clnvrm026-picata03
+pcs constraint order clnvrm026-nfsrec04 then clnvrm026-picata04
+
+# ---------------------------------------------------------
+# Application Services for clnvrm027
+# ---------------------------------------------------------
+pcs resource create clnvrm027-pctcfg-updater systemd:configuration-updater op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm027-pctcfg-updater rcount=1
+pcs constraint colocation add clnvrm027-pctcfg-updater with clnvrm027-vip score=INFINITY
+
+pcs resource create clnvrm027-picata01 systemd:picata-clnvrm027_p01 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm027-picata01 rcount=1
+pcs constraint colocation add clnvrm027-picata01 with clnvrm027-vip score=INFINITY
+
+pcs resource create clnvrm027-picata02 systemd:picata-clnvrm027_p02 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm027-picata02 rcount=1
+pcs constraint colocation add clnvrm027-picata02 with clnvrm027-vip score=INFINITY
+
+pcs resource create clnvrm027-picata03 systemd:picata-clnvrm027_p03 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm027-picata03 rcount=1
+pcs constraint colocation add clnvrm027-picata03 with clnvrm027-vip score=INFINITY
+
+pcs resource create clnvrm027-picata04 systemd:picata-clnvrm027_p04 op monitor interval=120s timeout=60s
+pcs resource utilization clnvrm027-picata04 rcount=1
+pcs constraint colocation add clnvrm027-picata04 with clnvrm027-vip score=INFINITY
+
+# Order constraints for Applications
+pcs constraint order start rg-clnvrm027-core then set clnvrm027-pctcfg-updater clnvrm027-picata01 clnvrm027-picata02 clnvrm027-picata03 clnvrm027-picata04 sequential=false
+pcs constraint order clnvrm027-nfsrec01 then clnvrm027-picata01
+pcs constraint order clnvrm027-nfsrec02 then clnvrm027-picata02
+pcs constraint order clnvrm027-nfsrec03 then clnvrm027-picata03
+pcs constraint order clnvrm027-nfsrec04 then clnvrm027-picata04
+
+# ---------------------------------------------------------
 # Final Verification
 # ---------------------------------------------------------
 pcs resource cleanup

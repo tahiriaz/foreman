@@ -8,7 +8,7 @@ from functions import generic
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Build the path to the Templates folder relative to the script
-RESOURCE_LIST = os.path.join(SCRIPT_DIR, 'Templates', 'Resource List-v7.4.xlsx')
+RESOURCE_LIST = os.path.join(SCRIPT_DIR, 'Templates', 'Resource List-v7.6.xlsx')
 SHEET_NAME = "General Resource List"
 
 def dns_from_excel(file_path, sheet, start_row, end_row):

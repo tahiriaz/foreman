@@ -104,7 +104,7 @@ def main():
     
     # Locate the Excel file relative to the script directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    excel_path = os.path.join(script_dir, 'Templates', 'Resource List-v7.5.xlsx')
+    excel_path = os.path.join(script_dir, 'Templates', 'Resource List-v7.6.xlsx')
     
     if not os.path.exists(excel_path):
         print(f"Error: Excel file not found at {excel_path}")

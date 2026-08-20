@@ -19,7 +19,7 @@ OA_PASSWORD = "Siljeddah15"
 ILO_LOGIN = "admin"
 ILO_PASSWORD = "password"
 
-# Replace with your 25-character iLO 4 Advanced License Key
+# Replace with your 25-character iLO Advanced License Key
 ILO_ADVANCED_LICENSE_KEY = "35SCR-RYLML-CBK7N-TD3B9-GGBW2"
 
 FENCE_USER_NAME = "Pacemaker Fence"
@@ -65,7 +65,7 @@ COMMAND_QUIET_TIME = 15.0
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_DIR = BASE_DIR / "Templates"
 TEMPLATE_FILE = "ilo_config.xml.j2"
-EXCEL_FILE = TEMPLATE_DIR / "Resource List-v7.5.xlsx"
+EXCEL_FILE = TEMPLATE_DIR / "Resource List-v7.6.xlsx"
 
 # ============================================================================
 # CORE LOGIC
@@ -79,10 +79,11 @@ def create_jinja_environment():
         keep_trailing_newline=True,
     )
 
-def render_template(add_user, apply_ipmi_config, scope_data, server_name, server_fqdn):
+def render_template(add_user, apply_ipmi_config, apply_license, scope_data, server_name, server_fqdn):
     env = create_jinja_environment()
     template = env.get_template(TEMPLATE_FILE)
     return template.render(
+        apply_license=apply_license,
         ilo_license_key=ILO_ADVANCED_LICENSE_KEY,
         add_user=add_user,
         apply_ipmi_config=apply_ipmi_config,
@@ -206,6 +207,25 @@ def check_ipmi_settings(oa, bay_number):
     else:
         print("  -> IPMI needs configuration. Queuing global settings update.")
         return True
+
+def check_ilo_license(oa, bay_number):
+    print(f"  -> Checking current iLO License status...")
+    ribcl = '<RIBCL VERSION="2.0">\n<LOGIN USER_LOGIN="{0}" PASSWORD="{1}">\n<RIB_INFO MODE="read">\n<GET_ALL_LICENSES/>\n</RIB_INFO>\n</LOGIN>\n</RIBCL>'.format(
+        ILO_LOGIN, ILO_PASSWORD
+    )
+    output = oa.execute_hponcfg(bay_number=bay_number, ribcl=ribcl, end_marker="ILO_LICENSE_CHECK_EOF")
+    
+    match = re.search(r'LICENSE_TYPE\s*VALUE\s*=\s*["\']([^"\']+)["\']', output, re.IGNORECASE)
+    
+    if match:
+        license_type = match.group(1)
+        print(f"  -> Detected License: {license_type}")
+        if "Advanced" in license_type:
+            print("  -> iLO Advanced features are already enabled. Skipping license application.")
+            return False
+            
+    print("  -> iLO Advanced features NOT found or undetermined. Queuing license activation.")
+    return True
 
 def validate_hponcfg_result(output):
     if "END RIBCL RESULTS" not in output:
@@ -333,17 +353,24 @@ def main():
             print(f"Configuring Bay {bay_number} | Server: {server_name} | Scope: {scope}")
             scope_data = SCOPE_SETTINGS[scope]
 
+            # 1. Check License
+            apply_license = check_ilo_license(oa, bay_number)
+
+            # 2. Check User
             user_exists = check_fence_user(oa, bay_number)
             if user_exists:
                 print(f"  -> User '{FENCE_USER_LOGIN}' exists. Skipping creation.")
             else:
                 print(f"  -> User '{FENCE_USER_LOGIN}' missing. Queuing creation.")
 
+            # 3. Check IPMI
             apply_ipmi = check_ipmi_settings(oa, bay_number)
 
+            # 4. Render and Push
             ribcl = render_template(
                 add_user=not user_exists, 
                 apply_ipmi_config=apply_ipmi,
+                apply_license=apply_license,
                 scope_data=scope_data,
                 server_name=server_name,
                 server_fqdn=server_fqdn
