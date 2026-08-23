@@ -18,6 +18,12 @@ sv_picata_config_update = "systemd:configuration-updater"
 
 # Scope-based Configuration Dictionary
 scope_config = {
+    'sil': {
+            'nas_basedir': "ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/",
+            'vip_nic': "vlan126",
+            'vip_mask': 23,
+            'cluster_prefix': "clnvrs"
+        },
     'mtr': {
         'nas_basedir': "ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/",
         'vip_nic': "vlan126",
@@ -77,6 +83,10 @@ df_vips = df[
 
 if df_blades.empty:
     print("\n[WARNING] 0 Blade Servers matched your filters! No files will be generated.")
+    print("\n--- DIAGNOSTIC CHECK ---")
+    print("Total rows loaded:", len(df))
+    print("Unique Equipment Types found:")
+    print(df['equipment_type'].dropna().unique())
     exit()
 
 # ==========================================

@@ -39,6 +39,11 @@ DIR_USER_CONTEXT_4 = "@mak.iss"
 # ============================================================================
 
 SCOPE_SETTINGS = {
+    "SIL": {
+            "PRIMARY_DNS": "10.130.2.11",
+            "SECONDARY_DNS": "10.130.2.12",
+            "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss"
+        },
     "MTR": {
         "PRIMARY_DNS": "10.130.2.11",
         "SECONDARY_DNS": "10.130.2.12",

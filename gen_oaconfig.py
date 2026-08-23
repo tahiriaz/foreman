@@ -8,6 +8,15 @@ from jinja2 import Environment, FileSystemLoader
 
 # Scope-specific network variables mapping
 scope_vars = {
+    "SIL": {
+            "gateway": "10.101.18.1",
+            "mask": "255.255.254.0",
+            "dns1": "10.130.2.11",
+            "dns2": "10.130.2.12",
+            "ntp1": "10.101.18.1",
+            "ntp2": "10.130.2.11",
+            "domain_controller": "INFCOSADU001MP.mak.iss"
+        },
     "MTR": {
         "gateway": "10.101.18.1",
         "mask": "255.255.254.0",

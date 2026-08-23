@@ -13,5 +13,5 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 RESOURCE_LIST = os.path.join(SCRIPT_DIR, 'Templates', 'Resource List-v7.6.xlsx')
 SHEET_NAME = "General Resource List"
 
-general.provision_from_excel(RESOURCE_LIST, SHEET_NAME, 174, 181)
+general.provision_from_excel(RESOURCE_LIST, SHEET_NAME, 1026, 1056)
 
