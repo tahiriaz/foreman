@@ -5,6 +5,7 @@ import platform
 import subprocess
 import requests
 from openpyxl import load_workbook
+import win32com.client as win32  # Added for formula recalculation
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)  # Suppress Python 3.6 cryptography warning
@@ -23,8 +24,8 @@ EXCEL_FILE = "Resource List-v7.6.xlsx"
 SHEET_NAME = "General Resource List"
 
 # Processing Scope
-START_ROW = 2
-END_ROW = 500  # Adjust as needed, or set to None to process to the end of the sheet
+START_ROW = 1057
+END_ROW = 1072  # Adjust as needed, or set to None to process to the end of the sheet
 
 # Target Equipment Types and Expected MACs (Case-Insensitive)
 # Dictionary format: {"EQUIPMENT TYPE NAME": expected_mac_count}
@@ -36,8 +37,7 @@ TARGET_EQUIPMENT = {
 
 # Required columns for a row to be processed
 REQUIRED_COLUMNS = [
-    'ilo_ip', 'equipment_type', 'serial_no',
-    'nic0_mac', 'nic1_mac', 'nic2_mac', 'nic3_mac', 'nic4_mac', 'nic5_mac'
+    'ilo_ip', 'equipment_type'
 ]
 
 # Ping Settings
@@ -122,11 +122,32 @@ def get_redfish_details(ilo_ip, user, pwd):
     except requests.exceptions.RequestException as e:
         print(f"  -> Connection error while communicating with Redfish API: {e}")
 
-    # Ensure we return a list of exactly 6 elements
-    padded_macs = (macs + ["MAC not found"] * 6)[:6]
+    # Ensure we return a list of exactly 6 elements, padded with empty strings
+    padded_macs = (macs + [""] * 6)[:6]
     return serial_number, padded_macs
 
+def refresh_excel_formulas(file_path):
+    """Uses the native Excel application in the background to rebuild formula caches."""
+    print("Commanding Excel to recalculate formulas in the background...")
+    try:
+        # Convert to absolute path (required by COM)
+        abs_path = os.path.abspath(file_path)
+        excel = win32.DispatchEx("Excel.Application")
+        excel.Visible = False       # Keep Excel hidden
+        excel.DisplayAlerts = False # Suppress popups
+
+        # Open, calculate, save, and close
+        wb = excel.Workbooks.Open(abs_path)
+        wb.Save()
+        wb.Close()
+        excel.Quit()
+        print("Formula cache successfully rebuilt!")
+    except Exception as e:
+        print(f"WARNING: Could not trigger Excel to rebuild formulas: {e}")
+
 def main():
+    global TARGET_EQUIPMENT
+    
     script_dir = os.path.dirname(os.path.abspath(__file__))
     excel_path = os.path.join(script_dir, EXCEL_DIR, EXCEL_FILE)
     
@@ -155,6 +176,9 @@ def main():
     if missing_cols:
         print(f"Error: Required columns missing in the Excel sheet: {', '.join(missing_cols)}")
         return
+
+    # Normalize dictionary keys to uppercase to ensure case-insensitive matching
+    TARGET_EQUIPMENT = {k.upper(): v for k, v in TARGET_EQUIPMENT.items()}
 
     # Scan for target servers
     servers_to_process = []
@@ -217,11 +241,13 @@ def main():
         
         for i in range(expected_macs):
             mac_val = macs[i]
-            print(f"  mac{i+1}          : {mac_val}")
             
-            if mac_val == "MAC not found":
+            # Check for the empty string instead of "MAC not found"
+            if not mac_val:
+                print(f"  mac{i+1}          : [MISSING]")
                 print(f"  -> WARNING: Expected mac{i+1} was not found on this server.")
             else:
+                print(f"  mac{i+1}          : {mac_val}")
                 found_mac_count += 1
                 
         if found_mac_count < expected_macs:
@@ -232,6 +258,10 @@ def main():
     try:
         wb_write.save(excel_path)
         print("Excel file successfully updated!")
+        
+        # Force Excel to rebuild the cache so the script works next time!
+        refresh_excel_formulas(excel_path)
+        
     except PermissionError:
         print(f"ERROR: Cannot save Excel file. Please ensure '{EXCEL_FILE}' is not open in another program.")
 

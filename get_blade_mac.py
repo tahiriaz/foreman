@@ -1,11 +1,19 @@
-import paramiko
-import re
 import os
+import re
 import warnings
-from openpyxl import load_workbook
 
-# Suppress the Python 3.6 Cryptography Deprecation Warning from Paramiko
+# ==========================================
+# Suppress Deprecation Warnings
+# ==========================================
+# These must come BEFORE importing paramiko to successfully hide the cryptography warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*Python 3.6 is no longer supported.*")
+warnings.filterwarnings("ignore", module="cryptography")
+warnings.filterwarnings("ignore", module="paramiko")
+
+import paramiko
+from openpyxl import load_workbook
+import win32com.client as win32  # Added for formula recalculation
 
 # ==========================================
 # Global Configuration
@@ -46,7 +54,8 @@ def connect_to_oa(primary_ip, secondary_ip, user, pwd):
 
 def get_blade_details(ssh, bay):
     """Retrieves Serial Number and MAC addresses for a specific blade bay via an active SSH session."""
-    macs = ["MAC not found"] * 6
+    # Initialize with empty strings so "MAC not found" isn't written to Excel
+    macs = [""] * 6
     serial_number = "Serial Number not found"
     
     try:
@@ -97,6 +106,25 @@ def get_blade_details(ssh, bay):
         print(f"Error executing commands for bay {bay}: {e}")
         
     return serial_number, macs
+
+def refresh_excel_formulas(file_path):
+    """Uses the native Excel application in the background to rebuild formula caches."""
+    print("Commanding Excel to recalculate formulas in the background...")
+    try:
+        # Convert to absolute path (required by COM)
+        abs_path = os.path.abspath(file_path)
+        excel = win32.DispatchEx("Excel.Application")
+        excel.Visible = False       # Keep Excel hidden
+        excel.DisplayAlerts = False # Suppress popups
+
+        # Open, calculate, save, and close
+        wb = excel.Workbooks.Open(abs_path)
+        wb.Save()
+        wb.Close()
+        excel.Quit()
+        print("Formula cache successfully rebuilt!")
+    except Exception as e:
+        print(f"WARNING: Could not trigger Excel to rebuild formulas: {e}")
 
 def main():
     # Make input case-insensitive to avoid typo errors
@@ -231,14 +259,19 @@ def main():
             # Display results and warnings for missing MACs
             print(f"  Serial Number : {serial_no}")
             for i, mac in enumerate(macs, 1):
-                print(f"  mac{i}          : {mac}")
-                if mac == "MAC not found":
+                if not mac:
+                    print(f"  mac{i}          : [MISSING]")
                     print(f"  -> WARNING: mac{i} was not found on the server.")
+                else:
+                    print(f"  mac{i}          : {mac}")
 
-        # Save the updated Excel file (this preserves the formulas!)
+        # Save the updated Excel file
         print(f"\nSaving updates to {excel_path}...")
         wb_write.save(excel_path)
         print("Excel file successfully updated!")
+        
+        # Trigger the formula recalculation
+        refresh_excel_formulas(excel_path)
         
     finally:
         ssh.close()
