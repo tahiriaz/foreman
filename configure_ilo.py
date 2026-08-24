@@ -4,7 +4,15 @@
 import re
 import sys
 import time
+import socket
+import warnings
 from pathlib import Path
+
+# Suppress the Python 3.6 cryptography deprecation warnings
+warnings.filterwarnings("ignore", message=".*Python 3.6 is no longer supported.*")
+warnings.filterwarnings("ignore", module="cryptography")
+warnings.filterwarnings("ignore", module="paramiko")
+
 import paramiko
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -64,8 +72,9 @@ DEBUG_MODE = 0
 
 SSH_PORT = 22
 SSH_CONNECT_TIMEOUT = 15
-COMMAND_TIMEOUT = 300       # Increased to 5 minutes total
-COMMAND_QUIET_TIME = 60.0   # Increased to 60 seconds of silence
+COMMAND_TIMEOUT = 300           # 5 minutes total timeout per command
+COMMAND_QUIET_TIME = 60.0       # Wait up to 60 seconds of silence for heavy processing
+SSH_KEEPALIVE_INTERVAL = 5      # Send keepalives every 5 seconds
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_DIR = BASE_DIR / "Templates"
@@ -127,8 +136,12 @@ class OAConnection(object):
             timeout=SSH_CONNECT_TIMEOUT, look_for_keys=False, allow_agent=False,
         )
         
-        # Keepalive added to prevent network timeouts during long configs
-        self.client.get_transport().set_keepalive(10)
+        # 1. SSH-level keepalive
+        self.client.get_transport().set_keepalive(SSH_KEEPALIVE_INTERVAL)
+        
+        # 2. TCP-level keepalive to prevent aggressive network firewalls from dropping the connection
+        sock = self.client.get_transport().sock
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         
         self.channel = self.client.invoke_shell()
         time.sleep(1)
@@ -394,7 +407,7 @@ def main():
                 server_fqdn=server_fqdn
             )
             
-            print("  -> Pushing RIBCL configuration (this will take 10-20 seconds)...")
+            print("  -> Pushing RIBCL configuration...")
             result = oa.execute_hponcfg(bay_number=bay_number, ribcl=ribcl)
 
             if DEBUG_MODE == 1:
