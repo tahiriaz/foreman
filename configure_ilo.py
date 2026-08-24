@@ -40,10 +40,10 @@ DIR_USER_CONTEXT_4 = "@mak.iss"
 
 SCOPE_SETTINGS = {
     "SIL": {
-            "PRIMARY_DNS": "10.130.2.11",
-            "SECONDARY_DNS": "10.130.2.12",
-            "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss"
-        },
+        "PRIMARY_DNS": "10.130.2.11",
+        "SECONDARY_DNS": "10.130.2.12",
+        "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss"
+    },
     "MTR": {
         "PRIMARY_DNS": "10.130.2.11",
         "SECONDARY_DNS": "10.130.2.12",
@@ -64,8 +64,8 @@ DEBUG_MODE = 0
 
 SSH_PORT = 22
 SSH_CONNECT_TIMEOUT = 15
-COMMAND_TIMEOUT = 180
-COMMAND_QUIET_TIME = 15.0 
+COMMAND_TIMEOUT = 300       # Increased to 5 minutes total
+COMMAND_QUIET_TIME = 60.0   # Increased to 60 seconds of silence
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_DIR = BASE_DIR / "Templates"
@@ -126,6 +126,10 @@ class OAConnection(object):
             username=self.username, password=self.password,
             timeout=SSH_CONNECT_TIMEOUT, look_for_keys=False, allow_agent=False,
         )
+        
+        # Keepalive added to prevent network timeouts during long configs
+        self.client.get_transport().set_keepalive(10)
+        
         self.channel = self.client.invoke_shell()
         time.sleep(1)
         self._drain_channel()
@@ -158,6 +162,15 @@ class OAConnection(object):
                 if not data: break
                 output += data.decode("utf-8", errors="replace")
                 quiet_since = None
+                
+                # EXIT EARLY: Stop waiting immediately if iLO tells us it is done
+                if "END RIBCL RESULTS" in output:
+                    # Give it a tiny fraction of a second to flush the shell prompt
+                    time.sleep(0.2)
+                    if self.channel.recv_ready():
+                        output += self.channel.recv(65535).decode("utf-8", errors="replace")
+                    break
+                    
             else:
                 if quiet_since is None:
                     quiet_since = time.monotonic()
