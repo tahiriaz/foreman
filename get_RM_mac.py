@@ -13,8 +13,8 @@ import win32com.client as win32
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning) 
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
-requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ==========================================
 # Global Configuration Variables
