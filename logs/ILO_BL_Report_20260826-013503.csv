@@ -1,0 +1,9 @@
+slot,ip,status,Auth,Lic,Usr,Net,IPMI,ID,LDAP,Cert,Boot,Reboot,bootstrap_ok,ribcl_seconds,redfish_seconds,errors
+1,10.101.18.151,Successful,OK,SKIP,SKIP,OK,SKIP,OK,OK,OK,OK,SKIP,True,27.735000000102445,9.812000000150874,
+2,10.101.18.152,Failed Tasks,OK,SKIP,SKIP,OK,SKIP,FAIL,FAIL,FAIL,OK,SKIP,True,19.109000000171363,22.016000000061467,"[ID] 0X00D4: POST in progress, try command later. | [LDAP] 0X00D4: POST in progress, try command later. | [Cert] 0X00D4: POST in progress, try command later."
+5,10.101.18.155,Failed Tasks,OK,SKIP,SKIP,OK,SKIP,FAIL,FAIL,FAIL,OK,SKIP,True,18.625,21.687000000150874,"[ID] 0X00D4: POST in progress, try command later. | [LDAP] 0X00D4: POST in progress, try command later. | [Cert] 0X00D4: POST in progress, try command later."
+8,10.101.18.158,Successful,OK,SKIP,SKIP,OK,SKIP,OK,OK,OK,OK,SKIP,True,28.281000000191852,8.530999999959022,
+13,10.101.18.163,Failed Tasks,OK,SKIP,SKIP,OK,SKIP,FAIL,FAIL,FAIL,OK,SKIP,True,16.468000000109896,45.843000000109896,"[ID] 0X00D4: POST in progress, try command later. | [LDAP] 0X00D4: POST in progress, try command later. | [Cert] 0X00D4: POST in progress, try command later."
+14,10.101.18.164,Failed Tasks,OK,SKIP,SKIP,OK,SKIP,FAIL,FAIL,FAIL,OK,SKIP,True,16.562999999849126,22.95299999997951,"[ID] 0X00D4: POST in progress, try command later. | [LDAP] 0X00D4: POST in progress, try command later. | [Cert] 0X00D4: POST in progress, try command later."
+15,10.101.18.165,Failed Tasks,OK,SKIP,SKIP,OK,SKIP,FAIL,FAIL,FAIL,OK,SKIP,True,16.921000000089407,44.625,"[ID] 0X00D4: POST in progress, try command later. | [LDAP] 0X00D4: POST in progress, try command later. | [Cert] 0X00D4: POST in progress, try command later."
+16,10.101.18.166,Failed Tasks,OK,SKIP,SKIP,OK,SKIP,FAIL,FAIL,FAIL,OK,SKIP,True,17.125,22.389999999897555,"[ID] 0X00D4: POST in progress, try command later. | [LDAP] 0X00D4: POST in progress, try command later. | [Cert] 0X00D4: POST in progress, try command later."
