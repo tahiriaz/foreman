@@ -1,0 +1,544 @@
+#
+ sysname infsrves1001mp-infsrves2001mp
+#
+ clock timezone KSA add 03:00:00
+#
+ irf mac-address persistent timer
+ irf auto-update enable
+ undo irf link-delay
+ irf member 1 priority 4
+ irf member 2 priority 3
+#
+ domain default enable system
+#
+ telnet server enable
+#
+ undo ip http enable
+#
+ password-recovery enable
+#
+vlan 1
+#
+vlan 126
+ name mtr_tvs_nvr_fe
+#
+vlan 128
+ name mtr_tvs_nvr_me
+#
+vlan 130
+ name mtr_tvs_nvr_be
+#
+vlan 144
+ name mtr_tvs_nvr_cl
+#
+vlan 461
+ name mtr_infra_pxe
+#
+vlan 4094
+ name JAIL
+#
+domain save
+ access-limit disable
+ state active
+ idle-cut disable
+ self-service-url disable
+domain system
+ access-limit disable
+ state active
+ idle-cut disable
+ self-service-url disable
+#
+user-group system
+ group-attribute allow-guest
+#
+local-user admin
+ password cipher $c$3$y1d1kb0SadrcrH5aReeZ8shw1RB8rANfdQjf
+ authorization-attribute level 3
+ service-type ssh terminal
+ service-type ftp
+ service-type web
+local-user thales
+ password cipher $c$3$sBx8Fx0SYr0ip6Z57zf1j1WzlDUVO6KQg1x+
+ authorization-attribute level 3
+ service-type ssh terminal
+ service-type ftp
+ service-type web
+#
+ stp mode rstp
+#
+user-profile privilege
+#
+interface Bridge-Aggregation1
+ description To_core
+ port link-type trunk
+ port trunk permit vlan 126 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation11
+ description Blade01
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation12
+ description Blade02
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation13
+ description Blade03
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation14
+ description Blade04
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation15
+ description Blade05
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation16
+ description Blade06
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation17
+ description Blade07
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation18
+ description Blade08
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation19
+ description Blade09
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation20
+ description Blade10
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation21
+ description Blade11
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation22
+ description Blade12
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation23
+ description Blade13
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation24
+ description Blade14
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation25
+ description Blade15
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface Bridge-Aggregation26
+ description Blade16
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ link-aggregation mode dynamic
+ link-aggregation load-sharing mode destination-ip source-ip
+#
+interface NULL0
+#
+# interface Vlan-interface128
+# ip address 10.101.28.211 255.255.254.0
+#
+# interface Vlan-interface461
+# ip address 10.140.61.9 255.255.255.0
+#
+interface GigabitEthernet1/0/1
+ description To_Blade 01
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 11
+#
+interface GigabitEthernet1/0/2
+ description To_Blade 02
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 12
+#
+interface GigabitEthernet1/0/3
+ description To_Blade 03
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 13
+#
+interface GigabitEthernet1/0/4
+ description To_Blade 04
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 14
+#
+interface GigabitEthernet1/0/5
+ description To_Blade 05
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 15
+#
+interface GigabitEthernet1/0/6
+ description To_Blade 06
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 16
+#
+interface GigabitEthernet1/0/7
+ description To_Blade 07
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 17
+#
+interface GigabitEthernet1/0/8
+ description To_Blade 08
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 18
+#
+interface GigabitEthernet1/0/9
+ description To_Blade 9
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 19
+#
+interface GigabitEthernet1/0/10
+ description To_Blade 10
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 20
+#
+interface GigabitEthernet1/0/11
+ description To_Blade 11
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 21
+#
+interface GigabitEthernet1/0/12
+ description To_Blade 12
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 22
+#
+interface GigabitEthernet1/0/13
+ description To_Blade 13
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 23
+#
+interface GigabitEthernet1/0/14
+ description To_Blade 14
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 24
+#
+interface GigabitEthernet1/0/15
+ description To_Blade 15
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 25
+#
+interface GigabitEthernet1/0/16
+ description To_Blade 16
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 26
+#
+interface GigabitEthernet1/1/5
+ port access vlan 4094
+ shutdown
+#
+interface GigabitEthernet1/1/6
+ port access vlan 4094
+ shutdown
+#
+interface GigabitEthernet1/1/7
+ port access vlan 4094
+ shutdown
+#
+interface GigabitEthernet1/1/8
+ port access vlan 4094
+ shutdown
+#
+interface GigabitEthernet2/0/1
+ description To_Blade 01
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 11
+#
+interface GigabitEthernet2/0/2
+ description To_Blade 02
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 12
+#
+interface GigabitEthernet2/0/3
+ description To_Blade 03
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 13
+#
+interface GigabitEthernet2/0/4
+ description To_Blade 04
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 14
+#
+interface GigabitEthernet2/0/5
+ description To_Blade 05
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 15
+#
+interface GigabitEthernet2/0/6
+ description To_Blade 06
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 16
+#
+interface GigabitEthernet2/0/7
+ description To_Blade 07
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 17
+#
+interface GigabitEthernet2/0/8
+ description To_Blade 08
+ port link-type trunk
+ port trunk permit vlan 126 461
+ port trunk pvid vlan 461
+ port link-aggregation group 18
+#
+interface GigabitEthernet2/0/9
+ description To_Blade 9
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 19
+#
+interface GigabitEthernet2/0/10
+ description To_Blade 10
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 20
+#
+interface GigabitEthernet2/0/11
+ description To_Blade 11
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 21
+#
+interface GigabitEthernet2/0/12
+ description To_Blade 12
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 22
+#
+interface GigabitEthernet2/0/13
+ description To_Blade 13
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 23
+#
+interface GigabitEthernet2/0/14
+ description To_Blade 14
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 24
+#
+interface GigabitEthernet2/0/15
+ description To_Blade 15
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 25
+#
+interface GigabitEthernet2/0/16
+ description To_Blade 16
+ port link-type trunk
+ port trunk permit vlan 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 26
+#
+#
+interface GigabitEthernet2/1/5
+ port access vlan 4094
+ shutdown
+#
+interface GigabitEthernet2/1/6
+ port access vlan 4094
+ shutdown
+#
+interface GigabitEthernet2/1/7
+ port access vlan 4094
+ shutdown
+#
+interface GigabitEthernet2/1/8
+ port access vlan 4094
+ shutdown
+#
+interface M-Ethernet0/0/0
+ ip address dhcp-alloc
+#
+interface Ten-GigabitEthernet1/1/1
+ description To_core
+ port link-type trunk
+ port trunk permit vlan 126 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 1
+#
+interface Ten-GigabitEthernet1/1/2
+ shutdown
+#
+interface Ten-GigabitEthernet1/1/3
+ shutdown
+#
+interface Ten-GigabitEthernet1/1/4
+ shutdown
+#
+interface Ten-GigabitEthernet2/1/1
+ description To_core
+ port link-type trunk
+ port trunk permit vlan 126 128 144 461
+ port trunk pvid vlan 461
+ port link-aggregation group 1
+#
+interface Ten-GigabitEthernet2/1/2
+ shutdown
+#
+interface Ten-GigabitEthernet2/1/3
+ shutdown
+#
+interface Ten-GigabitEthernet2/1/4
+ shutdown
+#
+interface Ten-GigabitEthernet1/0/17
+#
+interface Ten-GigabitEthernet2/0/17
+#
+# info-center loghost 10.70.120.210
+# info-center loghost 10.70.120.211
+#
+ snmp-agent
+ snmp-agent local-engineid 800063A203D07E28BA6A27
+ snmp-agent community read ISS-NMS-NET-RO
+ snmp-agent sys-info contact Aftab
+ snmp-agent sys-info location Makkah
+ snmp-agent sys-info version all
+ snmp-agent target-host trap address udp-domain 10.106.202.10 params securityname ISS-NMS-NET-RO v2c
+#
+ ntp-service source-interface M-Ethernet0/0/0
+ ntp-service unicast-server 10.101.18.1 source-interface M-Ethernet0/0/0
+#
+ ssh server enable
+#
+ ftp server enable
+#
+ load xml-configuration
+#
+user-interface aux 0
+ set authentication password cipher $c$3$5BGypyP8TDUrQs6w2jpDIit0btxkjxU/ampYa1lX
+user-interface aux 1
+user-interface vty 0 7
+ authentication-mode scheme
+ user privilege level 3
+ set authentication password cipher $c$3$91IpBcnG0+5aTMP7g6yZQmrPEUx1UanQUXWg
+ protocol inbound ssh
+#
+irf-port 1/1
+ port group interface Ten-GigabitEthernet1/0/17 mode enhanced
+#
+irf-port 2/2
+ port group interface Ten-GigabitEthernet2/0/17 mode enhanced
