@@ -631,12 +631,12 @@ def process_ribcl_server(oa: OAConnection, srv: Dict[str, Any], ldap_ca_cert: st
     server_start = time.monotonic()
 
     try:
-        # Check if the server is in POST before doing anything else
-        status_output = oa.send_command(f"SHOW SERVER STATUS {slot}")
-        if re.search(r"POST.*?(In Progress|System POST)", status_output, flags=re.IGNORECASE):
+        # Corrected: Use SHOW SERVER INFO instead of SHOW SERVER STATUS to see POST state
+        status_output = oa.send_command(f"SHOW SERVER INFO {slot}")
+        if re.search(r"POST.*In Progress", status_output, flags=re.IGNORECASE):
             log(slot, ip, "Server is in POST. Forcing power off before configuration...")
             oa.send_command(f"POWEROFF SERVER {slot} FORCE")
-            time.sleep(15)  # Allow iLO to settle after the power command
+            time.sleep(20)  # Allow iLO to fully settle after power-off command
             
         if not ensure_bootstrap_admin(oa, srv, result): return
         if configure_combined_ribcl(oa, srv, scope_data["DIRECTORY_SERVER"], ldap_ca_cert, result):
