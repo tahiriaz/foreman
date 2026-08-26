@@ -141,7 +141,7 @@ HPONCFG_LINE_DELAY = 0.02
 
 AUTH_RETRIES = 5
 AUTH_RETRY_DELAY = 5
-REDFISH_TIMEOUT = 20
+REDFISH_TIMEOUT = 25
 
 POST_ERROR_STRING = "UnableToModifyDuringSystemPOST"
 POWER_OFF_POLL_INTERVAL = 5
@@ -345,8 +345,10 @@ def ribcl_errors(output: str, allowed_statuses=("0X0000",)) -> List[str]:
     return [f"{status}: {message or 'Unknown error'}" for status, message in responses if status not in allowed]
 
 def ribcl_user_exists(output: str, login_name: str) -> bool:
-    pattern = r"<GET_USER\b[^>]*USER_LOGIN\s*=\s*[\"']" + re.escape(login_name) + r"[\"']"
-    return bool(re.search(pattern, output, flags=re.IGNORECASE | re.DOTALL))
+    # Changed from GET_USER to USER_NAME to avoid falsely matching the echoed command.
+    # We only send GET_USER, so finding USER_NAME VALUE= guarantees it's an iLO response.
+    pattern = r"<USER_NAME\s+VALUE\s*=\s*[\"']" + re.escape(login_name) + r"[\"']"
+    return bool(re.search(pattern, output, flags=re.IGNORECASE))
 
 def get_ribcl_value(output: str, tag_name: str) -> Optional[str]:
     pattern = r"<" + re.escape(tag_name) + r"\b[^>]*VALUE\s*=\s*[\"']([^\"']*)[\"']"
@@ -468,8 +470,7 @@ class OAConnection:
             except Exception: slot_str = str(bay_number)
             logger.info(f"[Slot {slot_str}] POST lock detected in RIBCL. Forcing power off and retrying...")
             self.send_command(f"POWEROFF SERVER {bay_number} FORCE")
-            time.sleep(20)  # wait for iLO to fully settle after power command
-            # Retry the exact same payload once
+            time.sleep(20)
             return self.execute_hponcfg(bay_number, ribcl, end_marker, retry_on_post=False)
 
         return output
@@ -515,7 +516,8 @@ def ensure_bootstrap_admin(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict
         return True
 
     responses = parse_ribcl_responses(output)
-    unexpected = [f"{st}: {msg}" for st, msg in responses if st not in ("0X0000", "0X000A")]
+    # Exclude 0X0119 and 0X0112 (iLO codes for user does not exist) from unexpected errors
+    unexpected = [f"{st}: {msg}" for st, msg in responses if st not in ("0X0000", "0X000A", "0X0119", "0X0112")]
 
     if unexpected:
         if DEBUG_ON_FAILURE: debug_block(f"FAILED USER CHECK - BAY {slot}", output, force=True)
@@ -662,10 +664,8 @@ def ribcl_worker(worker_number: int, active_oa_ip: str, servers: List[Dict[str, 
         with OAConnection(OA_USERNAME, OA_PASSWORD, SSH_PORT) as oa:
             oa.connect(active_oa_ip)
             for srv in servers:
-                # 1. Complete RIBCL
                 process_ribcl_server(oa, srv, ldap_ca_cert, global_results)
                 
-                # 2. Immediately offload to Redfish pool if RIBCL was successful
                 result = global_results[srv["ilo_ip"]]
                 if result.get("bootstrap_ok") is True:
                     future = redfish_executor.submit(process_redfish, srv, global_results, trigger_reboot)
@@ -766,28 +766,46 @@ class ILORedfishProcessor:
         except Exception: pass
 
     def authenticate(self) -> bool:
-        auth_url = f"{self.base_url}/redfish/v1/SessionService/Sessions"
+        session_endpoints = [
+            f"{self.base_url}/redfish/v1/SessionService/Sessions",
+            f"{self.base_url}/redfish/v1/Sessions",
+            f"{self.base_url}/rest/v1/Sessions",
+        ]
         last_error = None
         for attempt in range(1, AUTH_RETRIES + 1):
-            try:
-                resp = self._post(auth_url, {"UserName": self.login, "Password": self.password})
-                if resp.status_code in (400, 401, 403):
-                    last_error = f"HTTP {resp.status_code}: {self._extract_error_message(resp)}"
+            for auth_url in session_endpoints:
+                try:
+                    resp = self._post(auth_url, {"UserName": self.login, "Password": self.password})
+                    if resp.status_code in (400, 401, 403):
+                        err_msg = self._extract_error_message(resp)
+                        last_error = f"HTTP {resp.status_code}: {err_msg}"
+                        
+                        # Handle iLO 4 anti-brute-force delay explicitly
+                        if "LoginAttemptDelayed" in err_msg or "LoginAttemptDelayed" in (resp.text or ""):
+                            log(self.slot, self.ip, f"iLO authentication locked temporarily (attempt {attempt}/{AUTH_RETRIES}). Waiting 32s for penalty timeout to clear...")
+                            time.sleep(32)
+                            break
+                        
+                        if attempt < AUTH_RETRIES: time.sleep(AUTH_RETRY_DELAY)
+                        continue
+                        
+                    if resp.status_code == 404:
+                        continue
+
+                    resp.raise_for_status()
+                    token = resp.headers.get("X-Auth-Token")
+                    if not token: raise RuntimeError("No X-Auth-Token returned")
+                    self.session.headers["X-Auth-Token"] = token
+                    location = resp.headers.get("Location")
+                    if location:
+                        if location.startswith("https://"): location = re.sub(r"^https://[^/]+", "", location)
+                        self.session_uri = location
+                    self.res["Auth"] = TaskStatus.OK.value
+                    return True
+                except Exception as exc:
+                    last_error = str(exc)
                     if attempt < AUTH_RETRIES: time.sleep(AUTH_RETRY_DELAY)
-                    continue
-                resp.raise_for_status()
-                token = resp.headers.get("X-Auth-Token")
-                if not token: raise RuntimeError("No X-Auth-Token returned")
-                self.session.headers["X-Auth-Token"] = token
-                location = resp.headers.get("Location")
-                if location:
-                    if location.startswith("https://"): location = re.sub(r"^https://[^/]+", "", location)
-                    self.session_uri = location
-                self.res["Auth"] = TaskStatus.OK.value
-                return True
-            except Exception as exc:
-                last_error = str(exc)
-                if attempt < AUTH_RETRIES: time.sleep(AUTH_RETRY_DELAY)
+                    
         mark_failure(self.res, "Auth", last_error or "Authentication failed")
         return False
 
@@ -1215,10 +1233,8 @@ def main():
     redfish_futures = {}
     redfish_lock = threading.Lock()
 
-    # Create both thread pools upfront
     with concurrent.futures.ThreadPoolExecutor(max_workers=redfish_worker_count) as redfish_executor:
         with concurrent.futures.ThreadPoolExecutor(max_workers=ribcl_worker_count) as ribcl_executor:
-            # Submit Phase 1 workers. They will autonomously submit to redfish_executor
             ribcl_futures = [
                 ribcl_executor.submit(
                     ribcl_worker, worker_index, active_oa_ip, group, ldap_ca_cert, global_results, 
@@ -1227,16 +1243,12 @@ def main():
                 for worker_index, group in enumerate(groups, start=1)
             ]
             
-            # Wait for all RIBCL workers to process all servers
             for future in concurrent.futures.as_completed(ribcl_futures):
                 try: future.result()
                 except Exception as exc: logger.error(f"RIBCL worker exception: {exc}")
 
-        # At this point, the RIBCL block is complete. 
         timings["RIBCL"] = time.monotonic() - config_start
 
-        # By now, all eligible redfish tasks have been submitted to the redfish_executor. 
-        # We just need to wait for them to finish.
         for future in concurrent.futures.as_completed(redfish_futures.keys()):
             srv = redfish_futures[future]
             try: future.result()
@@ -1245,7 +1257,6 @@ def main():
                 global_results[ip]["status"] = "Failed Tasks"
                 global_results[ip]["errors"].append(f"[Worker] Unhandled exception: {exc}")
                 
-        # Total wait time remaining for Redfish phase *after* RIBCL finished
         timings["Redfish"] = time.monotonic() - config_start - timings["RIBCL"]
 
     for result in global_results.values(): recalculate_overall_status(result)
@@ -1298,14 +1309,12 @@ def main():
         CSV_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(CSV_REPORT_PATH, mode='w', newline='', encoding='utf-8') as csv_file:
             if report_list:
-                # Extract headers dynamically from the first record
                 fieldnames = list(report_list[0].keys())
                 writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                 writer.writeheader()
                 
                 for row in report_list:
                     row_copy = row.copy()
-                    # Convert the list of errors into a single string for CSV format
                     if isinstance(row_copy.get('errors'), list):
                         row_copy['errors'] = " | ".join(row_copy['errors'])
                     writer.writerow(row_copy)
