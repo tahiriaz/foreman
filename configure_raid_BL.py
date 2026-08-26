@@ -29,8 +29,8 @@ VALID_EQUIPMENT_TYPES = ["NVR Blade Server", "VCA Blade Server"]
 REQUIRED_COLUMNS = ["enclosure_slot", "ilo_ip"]
 
 # Timeouts & Limits
-CONTROLLER_TIMEOUT_MINUTES = 5   # Time to wait for server to POST and reveal controller
-RAID_TIMEOUT_MINUTES = 15        # Time to wait for SSACLI to build the array
+CONTROLLER_TIMEOUT_MINUTES = 10   # Time to wait for server to POST and reveal controller
+RAID_TIMEOUT_MINUTES = 30        # Time to wait for SSACLI to build the array
 MAX_WORKERS = 16                 # Prevent network flooding (cap to standard enclosure size)
 
 # --- Helper: Thread-Safe Logger ---
