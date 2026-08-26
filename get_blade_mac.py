@@ -20,7 +20,7 @@ import win32com.client as win32
 # Global Configuration
 # ==========================================
 USERNAME = "Administrator"
-PASSWORD = "Siljeddah15"
+PASSWORD = "Th@les01"
 # ==========================================
 
 class OAConnection:
