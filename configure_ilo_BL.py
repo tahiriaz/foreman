@@ -345,9 +345,8 @@ def ribcl_errors(output: str, allowed_statuses=("0X0000",)) -> List[str]:
     return [f"{status}: {message or 'Unknown error'}" for status, message in responses if status not in allowed]
 
 def ribcl_user_exists(output: str, login_name: str) -> bool:
-    # Changed from GET_USER to USER_NAME to avoid falsely matching the echoed command.
-    # We only send GET_USER, so finding USER_NAME VALUE= guarantees it's an iLO response.
-    pattern = r"<USER_NAME\s+VALUE\s*=\s*[\"']" + re.escape(login_name) + r"[\"']"
+    # Changed back to USER_LOGIN VALUE= to match actual iLO return instead of echoed string
+    pattern = r"<USER_LOGIN\s+VALUE\s*=\s*[\"']" + re.escape(login_name) + r"[\"']"
     return bool(re.search(pattern, output, flags=re.IGNORECASE))
 
 def get_ribcl_value(output: str, tag_name: str) -> Optional[str]:
@@ -464,7 +463,6 @@ class OAConnection:
                 elif time.monotonic() - quiet_since >= COMMAND_QUIET_TIME: break
                 time.sleep(0.05)
                 
-        # Handle POST lock automatically by detecting the specific error code/message in the response
         if retry_on_post and ("0X00D4" in output.upper() or "POST IN PROGRESS" in output.upper()):
             try: slot_str = f"{int(bay_number):02}"
             except Exception: slot_str = str(bay_number)
@@ -516,7 +514,6 @@ def ensure_bootstrap_admin(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict
         return True
 
     responses = parse_ribcl_responses(output)
-    # Exclude 0X0119 and 0X0112 (iLO codes for user does not exist) from unexpected errors
     unexpected = [f"{st}: {msg}" for st, msg in responses if st not in ("0X0000", "0X000A", "0X0119", "0X0112")]
 
     if unexpected:
@@ -535,7 +532,8 @@ def ensure_bootstrap_admin(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict
         res_dict["bootstrap_ok"] = False
         return False
 
-    errors = ribcl_errors(output)
+    # The magic bullet: We allow 0X0007 (The login/user name already exists) as a valid success code
+    errors = ribcl_errors(output, allowed_statuses=("0X0000", "0X0007"))
     if errors:
         if DEBUG_ON_FAILURE: debug_block(f"FAILED USER CREATE - BAY {slot}", output, force=True)
         for error in errors: res_dict["errors"].append(f"[Bootstrap] {error}")
@@ -544,7 +542,7 @@ def ensure_bootstrap_admin(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict
         res_dict["bootstrap_ok"] = False
         return False
 
-    log(slot, ip, "  -> Bootstrap administrator created.")
+    log(slot, ip, "  -> Bootstrap administrator ready.")
     res_dict["bootstrap_ok"] = True
     return True
 
@@ -780,7 +778,6 @@ class ILORedfishProcessor:
                         err_msg = self._extract_error_message(resp)
                         last_error = f"HTTP {resp.status_code}: {err_msg}"
                         
-                        # Handle iLO 4 anti-brute-force delay explicitly
                         if "LoginAttemptDelayed" in err_msg or "LoginAttemptDelayed" in (resp.text or ""):
                             log(self.slot, self.ip, f"iLO authentication locked temporarily (attempt {attempt}/{AUTH_RETRIES}). Waiting 32s for penalty timeout to clear...")
                             time.sleep(32)
