@@ -7,6 +7,7 @@ import time
 import re
 import warnings
 import logging
+import threading
 import concurrent.futures
 import csv
 from pathlib import Path
@@ -653,7 +654,7 @@ def process_ribcl_server(oa: OAConnection, srv: Dict[str, Any], ldap_ca_cert: st
         log(slot, ip, f"RIBCL phase finished in {result['ribcl_seconds']:.2f}s")
 
 
-def ribcl_worker(worker_number: int, active_oa_ip: str, servers: List[Dict[str, Any]], ldap_ca_cert: str, global_results: Dict[str, Any]):
+def ribcl_worker(worker_number: int, active_oa_ip: str, servers: List[Dict[str, Any]], ldap_ca_cert: str, global_results: Dict[str, Any], redfish_executor, redfish_futures: dict, redfish_lock, trigger_reboot: bool):
     if not servers: return
     logger.info(f"[RIBCL Worker {worker_number}] Connecting to active OA {active_oa_ip}...")
     
@@ -661,12 +662,25 @@ def ribcl_worker(worker_number: int, active_oa_ip: str, servers: List[Dict[str, 
         with OAConnection(OA_USERNAME, OA_PASSWORD, SSH_PORT) as oa:
             oa.connect(active_oa_ip)
             for srv in servers:
+                # 1. Complete RIBCL
                 process_ribcl_server(oa, srv, ldap_ca_cert, global_results)
+                
+                # 2. Immediately offload to Redfish pool if RIBCL was successful
+                result = global_results[srv["ilo_ip"]]
+                if result.get("bootstrap_ok") is True:
+                    future = redfish_executor.submit(process_redfish, srv, global_results, trigger_reboot)
+                    with redfish_lock:
+                        redfish_futures[future] = srv
+                else:
+                    result["Auth"] = TaskStatus.FAIL.value
+                    result["status"] = "Failed Tasks"
+
     except Exception as exc:
         for srv in servers:
             result = global_results[srv["ilo_ip"]]
             if result.get("bootstrap_ok") is None:
                 result["bootstrap_ok"] = False
+                result["Auth"] = TaskStatus.FAIL.value
                 result["status"] = "Failed Tasks"
                 result["errors"].append(f"[RIBCL Worker] {exc}")
 
@@ -1187,51 +1201,52 @@ def main():
         sys.exit(1)
 
     logger.info("\n" + "=" * 100)
-    logger.info("PHASE 1: PARALLEL OA/RIBCL CONFIGURATION")
-    logger.info("Bootstrap Admin + Server Name + LDAP + LDAP CA + Verification")
+    logger.info("PHASE 1 & 2: CONCURRENT OA/RIBCL & iLO REDFISH CONFIGURATION")
+    logger.info("Redfish configuration will trigger immediately as each server completes its RIBCL phase")
     logger.info("=" * 100)
 
-    ribcl_start = time.monotonic()
+    config_start = time.monotonic()
     ribcl_worker_count = min(RIBCL_CONCURRENT_SESSIONS, total_valid)
+    redfish_worker_count = min(REDFISH_CONCURRENT_SESSIONS, total_valid)
+    
     groups = [[] for _ in range(ribcl_worker_count)]
     for index, srv in enumerate(servers_to_process): groups[index % ribcl_worker_count].append(srv)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=ribcl_worker_count) as executor:
-        futures = [executor.submit(ribcl_worker, worker_index, active_oa_ip, group, ldap_ca_cert, global_results) for worker_index, group in enumerate(groups, start=1)]
-        for future in concurrent.futures.as_completed(futures):
-            try: future.result()
-            except Exception as exc: logger.error(f"RIBCL worker exception: {exc}")
+    redfish_futures = {}
+    redfish_lock = threading.Lock()
 
-    timings["RIBCL"] = time.monotonic() - ribcl_start
-
-    redfish_servers = []
-    for srv in servers_to_process:
-        result = global_results[srv["ilo_ip"]]
-        if result.get("bootstrap_ok") is True: redfish_servers.append(srv)
-        else:
-            result["Auth"] = TaskStatus.FAIL.value
-            result["status"] = "Failed Tasks"
-
-    logger.info("\n" + "=" * 100)
-    logger.info("PHASE 2: PARALLEL iLO REDFISH CONFIGURATION")
-    logger.info("License + Fence User + Network + DNS + iLO Hostname + IPMI + Boot + Reboot")
-    logger.info("=" * 100)
-
-    redfish_start = time.monotonic()
-    if redfish_servers:
-        redfish_worker_count = min(REDFISH_CONCURRENT_SESSIONS, len(redfish_servers))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=redfish_worker_count) as executor:
-            futures = {executor.submit(process_redfish, srv, global_results, trigger_reboot): srv for srv in redfish_servers}
-            for future in concurrent.futures.as_completed(futures):
-                srv = futures[future]
+    # Create both thread pools upfront
+    with concurrent.futures.ThreadPoolExecutor(max_workers=redfish_worker_count) as redfish_executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=ribcl_worker_count) as ribcl_executor:
+            # Submit Phase 1 workers. They will autonomously submit to redfish_executor
+            ribcl_futures = [
+                ribcl_executor.submit(
+                    ribcl_worker, worker_index, active_oa_ip, group, ldap_ca_cert, global_results, 
+                    redfish_executor, redfish_futures, redfish_lock, trigger_reboot
+                )
+                for worker_index, group in enumerate(groups, start=1)
+            ]
+            
+            # Wait for all RIBCL workers to process all servers
+            for future in concurrent.futures.as_completed(ribcl_futures):
                 try: future.result()
-                except Exception as exc:
-                    ip = srv["ilo_ip"]
-                    global_results[ip]["status"] = "Failed Tasks"
-                    global_results[ip]["errors"].append(f"[Worker] Unhandled exception: {exc}")
-    else: redfish_worker_count = 0
+                except Exception as exc: logger.error(f"RIBCL worker exception: {exc}")
 
-    timings["Redfish"] = time.monotonic() - redfish_start
+        # At this point, the RIBCL block is complete. 
+        timings["RIBCL"] = time.monotonic() - config_start
+
+        # By now, all eligible redfish tasks have been submitted to the redfish_executor. 
+        # We just need to wait for them to finish.
+        for future in concurrent.futures.as_completed(redfish_futures.keys()):
+            srv = redfish_futures[future]
+            try: future.result()
+            except Exception as exc:
+                ip = srv["ilo_ip"]
+                global_results[ip]["status"] = "Failed Tasks"
+                global_results[ip]["errors"].append(f"[Worker] Unhandled exception: {exc}")
+                
+        # Total wait time remaining for Redfish phase *after* RIBCL finished
+        timings["Redfish"] = time.monotonic() - config_start - timings["RIBCL"]
 
     for result in global_results.values(): recalculate_overall_status(result)
 
@@ -1308,8 +1323,8 @@ def main():
     logger.info("=" * 65)
     logger.info(f"{'Excel load/parse':<30}: {timings.get('Excel', 0):>8.2f} sec")
     logger.info(f"{'OA discovery':<30}: {timings.get('OA Discovery', 0):>8.2f} sec")
-    logger.info(f"{'Parallel RIBCL phase':<30}: {timings.get('RIBCL', 0):>8.2f} sec")
-    logger.info(f"{'Parallel Redfish phase':<30}: {timings.get('Redfish', 0):>8.2f} sec")
+    logger.info(f"{'RIBCL Phase (Overlapping)':<30}: {timings.get('RIBCL', 0):>8.2f} sec")
+    logger.info(f"{'Redfish Phase (Completion)':<30}: {timings.get('Redfish', 0):>8.2f} sec")
     logger.info(f"{'Final report':<30}: {timings.get('Report', 0):>8.2f} sec")
     logger.info("-" * 65)
     logger.info(f"{'TOTAL EXECUTION TIME':<30}: {timings.get('Total', 0):>8.2f} sec")
