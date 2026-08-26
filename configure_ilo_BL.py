@@ -431,7 +431,7 @@ class OAConnection:
         output = self.send_command("SHOW OA STATUS")
         return bool(re.search(r"Role:\s*Active", output, flags=re.IGNORECASE))
 
-    def execute_hponcfg(self, bay_number: int, ribcl: str, end_marker="ILO_RIBCL_EOF") -> str:
+    def execute_hponcfg(self, bay_number: int, ribcl: str, end_marker="ILO_RIBCL_EOF", retry_on_post=True) -> str:
         if not self.channel: raise RuntimeError("OA SSH channel is not connected")
         self._drain_channel()
         command = f"HPONCFG {bay_number} << {end_marker}\n{ribcl.rstrip()}\n{end_marker}\n"
@@ -460,6 +460,17 @@ class OAConnection:
                 if quiet_since is None: quiet_since = time.monotonic()
                 elif time.monotonic() - quiet_since >= COMMAND_QUIET_TIME: break
                 time.sleep(0.05)
+                
+        # Handle POST lock automatically by detecting the specific error code/message in the response
+        if retry_on_post and ("0X00D4" in output.upper() or "POST IN PROGRESS" in output.upper()):
+            try: slot_str = f"{int(bay_number):02}"
+            except Exception: slot_str = str(bay_number)
+            logger.info(f"[Slot {slot_str}] POST lock detected in RIBCL. Forcing power off and retrying...")
+            self.send_command(f"POWEROFF SERVER {bay_number} FORCE")
+            time.sleep(20)  # wait for iLO to fully settle after power command
+            # Retry the exact same payload once
+            return self.execute_hponcfg(bay_number, ribcl, end_marker, retry_on_post=False)
+
         return output
 
 
@@ -631,13 +642,6 @@ def process_ribcl_server(oa: OAConnection, srv: Dict[str, Any], ldap_ca_cert: st
     server_start = time.monotonic()
 
     try:
-        # Corrected: Use SHOW SERVER INFO instead of SHOW SERVER STATUS to see POST state
-        status_output = oa.send_command(f"SHOW SERVER INFO {slot}")
-        if re.search(r"POST.*In Progress", status_output, flags=re.IGNORECASE):
-            log(slot, ip, "Server is in POST. Forcing power off before configuration...")
-            oa.send_command(f"POWEROFF SERVER {slot} FORCE")
-            time.sleep(20)  # Allow iLO to fully settle after power-off command
-            
         if not ensure_bootstrap_admin(oa, srv, result): return
         if configure_combined_ribcl(oa, srv, scope_data["DIRECTORY_SERVER"], ldap_ca_cert, result):
             verify_ldap_ribcl(oa, srv, scope_data["DIRECTORY_SERVER"], result)
