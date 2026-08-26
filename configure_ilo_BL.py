@@ -85,7 +85,7 @@ class TaskStatus(Enum):
 # ============================================================================
 
 OA_USERNAME = "Administrator"
-OA_PASSWORD = "Th@les01"
+OA_PASSWORD = "Siljeddah15"
 
 ILO_LOGIN = "thlocaladmin"
 ILO_PASSWORD = "Th@les018664"
