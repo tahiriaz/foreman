@@ -13,6 +13,7 @@ import csv
 from pathlib import Path
 from enum import Enum
 from typing import Dict, Any, List, Tuple, Optional
+from xml.sax.saxutils import escape as xml_escape
 
 # ============================================================================
 # WARNING SUPPRESSION (Must be before third-party imports)
@@ -48,6 +49,9 @@ def setup_logging() -> logging.Logger:
     """Configures thread-safe console logging."""
     logger = logging.getLogger("ilo_automation")
     logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    if logger.handlers:
+        logger.handlers.clear()
     
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.INFO)
@@ -96,6 +100,8 @@ REDFISH_CONCURRENT_SESSIONS = 16
 
 IPMI_PORT = 623
 ILO_DOMAIN = "mak.iss"
+ILO_TIMEZONE_SEARCH = "Riyadh"
+
 LDAP_PORT = 636
 LDAP_GROUP_NAME = "CN=ILOAdmins,OU=Roles,OU=IT,OU=ISS,DC=mak,DC=iss"
 LDAP_GROUP_SID = ""
@@ -108,9 +114,9 @@ LDAP_USER_CONTEXTS = [
 ]
 
 SCOPE_SETTINGS = {
-    "SIL": {"PRIMARY_DNS": "10.130.2.11", "SECONDARY_DNS": "10.130.2.12", "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss"},
-    "MTR": {"PRIMARY_DNS": "10.130.2.11", "SECONDARY_DNS": "10.130.2.12", "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss"},
-    "RTR": {"PRIMARY_DNS": "10.130.3.11", "SECONDARY_DNS": "10.130.3.12", "DIRECTORY_SERVER": "INFCOSADU002MP.mak.iss"},
+    "SIL": {"PRIMARY_DNS": "10.130.2.11", "SECONDARY_DNS": "10.130.2.12", "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss", "NTP_PRIMARY": "10.101.18.1", "NTP_SECONDARY": "10.130.2.11"},
+    "MTR": {"PRIMARY_DNS": "10.130.2.11", "SECONDARY_DNS": "10.130.2.12", "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss", "NTP_PRIMARY": "10.101.18.1", "NTP_SECONDARY": "10.130.2.11"},
+    "RTR": {"PRIMARY_DNS": "10.130.4.11", "SECONDARY_DNS": "10.130.4.12", "DIRECTORY_SERVER": "INFCOSADU002MP.mak.iss", "NTP_PRIMARY": "10.102.18.1", "NTP_SECONDARY": "10.130.4.11"},
 }
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -141,7 +147,9 @@ HPONCFG_LINE_DELAY = 0.02
 
 AUTH_RETRIES = 5
 AUTH_RETRY_DELAY = 5
+LOGIN_PENALTY_WAIT = 32
 REDFISH_TIMEOUT = 25
+HTTP_SAFE_RETRIES = 2
 
 POST_ERROR_STRING = "UnableToModifyDuringSystemPOST"
 POWER_OFF_POLL_INTERVAL = 5
@@ -153,20 +161,26 @@ ILO_SETTLE_AFTER_POWEROFF = 5
 # PAYLOAD BUILDERS (Decoupled RIBCL XML)
 # ============================================================================
 
+def xml_attr(value: Any) -> str:
+    """Escape a value for use inside a double-quoted XML attribute."""
+    return xml_escape(str(value), {"\"": "&quot;", "'": "&apos;"})
+
+
 def build_ribcl_user_check() -> str:
     return f"""<RIBCL VERSION="2.0">
-<LOGIN USER_LOGIN="{OA_USERNAME}" PASSWORD="{OA_PASSWORD}">
+<LOGIN USER_LOGIN="{xml_attr(OA_USERNAME)}" PASSWORD="{xml_attr(OA_PASSWORD)}">
 <USER_INFO MODE="read">
-<GET_USER USER_LOGIN="{ILO_LOGIN}"/>
+<GET_USER USER_LOGIN="{xml_attr(ILO_LOGIN)}"/>
 </USER_INFO>
 </LOGIN>
 </RIBCL>"""
 
+
 def build_ribcl_user_add() -> str:
     return f"""<RIBCL VERSION="2.0">
-<LOGIN USER_LOGIN="{OA_USERNAME}" PASSWORD="{OA_PASSWORD}">
+<LOGIN USER_LOGIN="{xml_attr(OA_USERNAME)}" PASSWORD="{xml_attr(OA_PASSWORD)}">
 <USER_INFO MODE="write">
-<ADD_USER USER_NAME="{ILO_LOGIN}" USER_LOGIN="{ILO_LOGIN}" PASSWORD="{ILO_PASSWORD}">
+<ADD_USER USER_NAME="{xml_attr(ILO_LOGIN)}" USER_LOGIN="{xml_attr(ILO_LOGIN)}" PASSWORD="{xml_attr(ILO_PASSWORD)}">
 <ADMIN_PRIV VALUE="Y"/><REMOTE_CONS_PRIV VALUE="Y"/><RESET_SERVER_PRIV VALUE="Y"/>
 <VIRTUAL_MEDIA_PRIV VALUE="Y"/><CONFIG_ILO_PRIV VALUE="Y"/>
 </ADD_USER>
@@ -174,27 +188,28 @@ def build_ribcl_user_add() -> str:
 </LOGIN>
 </RIBCL>"""
 
+
 def build_ribcl_combined(hostname: str, directory_server: str, cert_data: str) -> str:
     return f"""<RIBCL VERSION="2.0">
-<LOGIN USER_LOGIN="{OA_USERNAME}" PASSWORD="{OA_PASSWORD}">
+<LOGIN USER_LOGIN="{xml_attr(OA_USERNAME)}" PASSWORD="{xml_attr(OA_PASSWORD)}">
 <SERVER_INFO MODE="write">
-<SERVER_NAME VALUE="{hostname}"/>
+<SERVER_NAME VALUE="{xml_attr(hostname)}"/>
 </SERVER_INFO>
 <DIR_INFO MODE="write">
 <MOD_DIR_CONFIG>
 <DIR_AUTHENTICATION_ENABLED VALUE="Yes"/>
 <DIR_LOCAL_USER_ACCT VALUE="Yes"/>
-<DIR_SERVER_ADDRESS VALUE="{directory_server}"/>
+<DIR_SERVER_ADDRESS VALUE="{xml_attr(directory_server)}"/>
 <DIR_SERVER_PORT VALUE="{LDAP_PORT}"/>
-<DIR_USER_CONTEXT_1 VALUE="{LDAP_USER_CONTEXTS[0]}"/>
-<DIR_USER_CONTEXT_2 VALUE="{LDAP_USER_CONTEXTS[1]}"/>
-<DIR_USER_CONTEXT_3 VALUE="{LDAP_USER_CONTEXTS[2]}"/>
-<DIR_USER_CONTEXT_4 VALUE="{LDAP_USER_CONTEXTS[3]}"/>
+<DIR_USER_CONTEXT_1 VALUE="{xml_attr(LDAP_USER_CONTEXTS[0])}"/>
+<DIR_USER_CONTEXT_2 VALUE="{xml_attr(LDAP_USER_CONTEXTS[1])}"/>
+<DIR_USER_CONTEXT_3 VALUE="{xml_attr(LDAP_USER_CONTEXTS[2])}"/>
+<DIR_USER_CONTEXT_4 VALUE="{xml_attr(LDAP_USER_CONTEXTS[3])}"/>
 <DIR_ENABLE_GRP_ACCT VALUE="Yes"/>
 <DIR_GENERIC_LDAP_ENABLED VALUE="No"/>
-<DIR_GRPACCT1_NAME VALUE="{LDAP_GROUP_NAME}"/>
-<DIR_GRPACCT1_PRIV VALUE="{LDAP_GROUP_PRIVILEGES}"/>
-<DIR_GRPACCT1_SID VALUE="{LDAP_GROUP_SID}"/>
+<DIR_GRPACCT1_NAME VALUE="{xml_attr(LDAP_GROUP_NAME)}"/>
+<DIR_GRPACCT1_PRIV VALUE="{xml_attr(LDAP_GROUP_PRIVILEGES)}"/>
+<DIR_GRPACCT1_SID VALUE="{xml_attr(LDAP_GROUP_SID)}"/>
 </MOD_DIR_CONFIG>
 <IMPORT_LDAP_CA_CERTIFICATE>
 {cert_data.strip()}
@@ -203,9 +218,10 @@ def build_ribcl_combined(hostname: str, directory_server: str, cert_data: str) -
 </LOGIN>
 </RIBCL>"""
 
+
 def build_ribcl_ldap_verify() -> str:
     return f"""<RIBCL VERSION="2.0">
-<LOGIN USER_LOGIN="{OA_USERNAME}" PASSWORD="{OA_PASSWORD}">
+<LOGIN USER_LOGIN="{xml_attr(OA_USERNAME)}" PASSWORD="{xml_attr(OA_PASSWORD)}">
 <DIR_INFO MODE="read">
 <GET_DIR_CONFIG/>
 </DIR_INFO>
@@ -327,27 +343,76 @@ def load_resource_excel_fast(excel_path: Path, sheet_name: str, empty_row_stop: 
 # RIBCL PARSING
 # ============================================================================
 
+def extract_ribcl_results(output: str) -> str:
+    """Return the actual HPONCFG result section, excluding echoed request XML."""
+    if not output:
+        return ""
+
+    match = re.search(
+        r"START\s+RIBCL\s+RESULTS.*?(.*?)(?:END\s+RIBCL\s+RESULTS|$)",
+        output,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return match.group(1) if match else output
+
+
+def normalize_ribcl_status(status: str) -> str:
+    value = str(status or "").strip().upper()
+    try:
+        return f"0X{int(value, 16):04X}"
+    except Exception:
+        return value
+
+
 def parse_ribcl_responses(output: str) -> List[Tuple[str, str]]:
     results = []
-    response_tags = re.findall(r"<RESPONSE\b(.*?)/>", output, flags=re.IGNORECASE | re.DOTALL)
+    result_text = extract_ribcl_results(output)
+    response_tags = re.findall(r"<RESPONSE\b(.*?)/>", result_text, flags=re.IGNORECASE | re.DOTALL)
     for tag in response_tags:
         status_match = re.search(r'\bSTATUS\s*=\s*["\']([^"\']+)["\']', tag, flags=re.IGNORECASE)
-        message_match = re.search(r'\bMESSAGE\s*=\s*["\']([^"\']*)["\']', tag, flags=re.IGNORECASE)
-        status = status_match.group(1).strip().upper() if status_match else "UNKNOWN"
+        message_match = re.search(r'\b(?:MSG|MESSAGE)\s*=\s*["\']([^"\']*)["\']', tag, flags=re.IGNORECASE)
+        status = normalize_ribcl_status(status_match.group(1)) if status_match else "UNKNOWN"
         message = message_match.group(1).strip() if message_match else ""
         results.append((status, message))
     return results
 
+
 def ribcl_errors(output: str, allowed_statuses=("0X0000",)) -> List[str]:
-    allowed = {s.upper() for s in allowed_statuses}
+    allowed = {normalize_ribcl_status(s) for s in allowed_statuses}
     responses = parse_ribcl_responses(output)
-    if not responses: return ["No RIBCL RESPONSE elements returned"]
+    if not responses:
+        return ["No RIBCL RESPONSE elements returned"]
     return [f"{status}: {message or 'Unknown error'}" for status, message in responses if status not in allowed]
 
+
 def get_ribcl_value(output: str, tag_name: str) -> Optional[str]:
+    result_text = extract_ribcl_results(output)
     pattern = r"<" + re.escape(tag_name) + r"\b[^>]*VALUE\s*=\s*[\"']([^\"']*)[\"']"
-    match = re.search(pattern, output, flags=re.IGNORECASE | re.DOTALL)
+    match = re.search(pattern, result_text, flags=re.IGNORECASE | re.DOTALL)
     return match.group(1).strip() if match else None
+
+
+def ribcl_user_exists(output: str, login_name: str) -> Tuple[bool, Optional[str]]:
+    """Determine whether GET_USER returned the requested local account."""
+    result_text = extract_ribcl_results(output)
+
+    for tag in re.findall(r"<GET_USER\b[^>]*>", result_text, flags=re.IGNORECASE | re.DOTALL):
+        login_match = re.search(
+            r'\bUSER_LOGIN\s*=\s*["\']([^"\']+)["\']',
+            tag,
+            flags=re.IGNORECASE,
+        )
+        if login_match and login_match.group(1).strip() == login_name.strip():
+            return True, None
+
+    if re.search(r"User\s+login\s+name\s+was\s+not\s+found", result_text, flags=re.IGNORECASE):
+        return False, "not found"
+
+    errors = ribcl_errors(result_text)
+    if errors:
+        return False, "; ".join(errors)
+
+    return False, "GET_USER completed successfully but did not return the requested account"
 
 
 # ============================================================================
@@ -405,7 +470,7 @@ class OAConnection:
     def send_command(self, cmd: str, wait_string: str = ">", timeout: int = 15) -> str:
         if not self.channel: raise RuntimeError("OA SSH channel is not connected")
         self._drain_channel()
-        self.channel.send(cmd + "\n")
+        self.channel.sendall(cmd + "\n")
         output = ""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -434,7 +499,7 @@ class OAConnection:
         command = f"HPONCFG {bay_number} << {end_marker}\n{ribcl.rstrip()}\n{end_marker}\n"
         
         for line in command.splitlines():
-            self.channel.send(line + "\n")
+            self.channel.sendall(line + "\n")
             time.sleep(HPONCFG_LINE_DELAY)
 
         output = ""
@@ -458,7 +523,6 @@ class OAConnection:
                 elif time.monotonic() - quiet_since >= COMMAND_QUIET_TIME: break
                 time.sleep(0.05)
                 
-        # Handle POST lock automatically by detecting the specific error code/message in the response
         if retry_on_post and ("0X00D4" in output.upper() or "POST IN PROGRESS" in output.upper()):
             try: slot_str = f"{int(bay_number):02}"
             except Exception: slot_str = str(bay_number)
@@ -496,49 +560,78 @@ def ensure_bootstrap_admin(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict
     log(slot, ip, f"RIBCL: Checking '{ILO_LOGIN}'...")
 
     try:
-        output = oa.execute_hponcfg(slot, build_ribcl_user_check())
+        output = oa.execute_hponcfg(slot, build_ribcl_user_check(), end_marker="ILO_USER_CHECK_EOF")
     except Exception as exc:
         mark_failure(res_dict, "Auth", f"Bootstrap user check failed: {exc}")
         res_dict["bootstrap_ok"] = False
         return False
 
-    if DEBUG: debug_block(f"USER CHECK - BAY {slot}", output)
+    if DEBUG:
+        debug_block(f"USER CHECK - BAY {slot}", output)
 
-    responses = parse_ribcl_responses(output)
-    statuses = [st for st, msg in responses]
-
-    # iLO returns 0X0119 or 0X0112 if the user explicitly does NOT exist.
-    if "0X0119" not in statuses and "0X0112" not in statuses:
-        # Check for any other fatal syntax/auth errors before assuming it exists
-        unexpected = [f"{st}: {msg}" for st, msg in responses if st not in ("0X0000", "0X000A")]
-        if unexpected:
-            if DEBUG_ON_FAILURE: debug_block(f"FAILED USER CHECK - BAY {slot}", output, force=True)
-            for error in unexpected: res_dict["errors"].append(f"[Bootstrap] {error}")
-            res_dict["Auth"] = TaskStatus.FAIL.value
-            res_dict["status"] = "Failed Tasks"
-            res_dict["bootstrap_ok"] = False
-            return False
-            
+    user_exists, check_error = ribcl_user_exists(output, ILO_LOGIN)
+    if user_exists:
         log(slot, ip, f"  -> '{ILO_LOGIN}' already exists.")
         res_dict["bootstrap_ok"] = True
         return True
 
-    # User does not exist, proceed to create
-    log(slot, ip, f"  -> Creating '{ILO_LOGIN}'...")
+    if check_error != "not found":
+        if DEBUG_ON_FAILURE:
+            debug_block(f"FAILED USER CHECK - BAY {slot}", output, force=True)
+        mark_failure(
+            res_dict,
+            "Auth",
+            f"Unable to determine whether '{ILO_LOGIN}' exists: {check_error}",
+        )
+        res_dict["bootstrap_ok"] = False
+        return False
+
+    log(slot, ip, f"  -> '{ILO_LOGIN}' does not exist. Creating account...")
     try:
-        output = oa.execute_hponcfg(slot, build_ribcl_user_add())
+        add_output = oa.execute_hponcfg(slot, build_ribcl_user_add(), end_marker="ILO_USER_ADD_EOF")
     except Exception as exc:
         mark_failure(res_dict, "Auth", f"Bootstrap account creation failed: {exc}")
         res_dict["bootstrap_ok"] = False
         return False
 
-    # Check for success (0X0000) OR safe fallback (0X0007: User already exists)
-    errors = ribcl_errors(output, allowed_statuses=("0X0000", "0X0007"))
+    errors = ribcl_errors(add_output, allowed_statuses=("0X0000", "0X0007"))
     if errors:
-        if DEBUG_ON_FAILURE: debug_block(f"FAILED USER CREATE - BAY {slot}", output, force=True)
-        for error in errors: res_dict["errors"].append(f"[Bootstrap] {error}")
+        duplicate_error = any("exist" in error.lower() or "duplicate" in error.lower() for error in errors)
+        if duplicate_error:
+            try:
+                verify_output = oa.execute_hponcfg(slot, build_ribcl_user_check(), end_marker="ILO_USER_RECHECK_EOF")
+                exists_after_add, _ = ribcl_user_exists(verify_output, ILO_LOGIN)
+                if exists_after_add:
+                    log(slot, ip, f"  -> '{ILO_LOGIN}' confirmed present after ADD_USER response.")
+                    res_dict["bootstrap_ok"] = True
+                    return True
+            except Exception:
+                pass
+
+        if DEBUG_ON_FAILURE:
+            debug_block(f"FAILED USER CREATE - BAY {slot}", add_output, force=True)
+        for error in errors:
+            res_dict["errors"].append(f"[Bootstrap] {error}")
         res_dict["Auth"] = TaskStatus.FAIL.value
         res_dict["status"] = "Failed Tasks"
+        res_dict["bootstrap_ok"] = False
+        return False
+
+    # Verify the account after creation instead of trusting ADD_USER alone.
+    try:
+        verify_output = oa.execute_hponcfg(slot, build_ribcl_user_check(), end_marker="ILO_USER_VERIFY_EOF")
+        user_exists, verify_error = ribcl_user_exists(verify_output, ILO_LOGIN)
+    except Exception as exc:
+        mark_failure(res_dict, "Auth", f"Bootstrap account created but verification failed: {exc}")
+        res_dict["bootstrap_ok"] = False
+        return False
+
+    if not user_exists:
+        mark_failure(
+            res_dict,
+            "Auth",
+            f"ADD_USER completed but '{ILO_LOGIN}' could not be verified: {verify_error}",
+        )
         res_dict["bootstrap_ok"] = False
         return False
 
@@ -638,7 +731,7 @@ def verify_ldap_ribcl(oa: OAConnection, srv: Dict[str, Any], directory_server: s
 def process_ribcl_server(oa: OAConnection, srv: Dict[str, Any], ldap_ca_cert: str, global_results: Dict[str, Any]):
     ip = srv["ilo_ip"]
     slot = srv["enclosure_slot"]
-    result = global_results[ip]
+    result = global_results[srv["result_key"]]
     scope_data = SCOPE_SETTINGS[srv["scope"]]
     server_start = time.monotonic()
 
@@ -664,7 +757,7 @@ def ribcl_worker(worker_number: int, active_oa_ip: str, servers: List[Dict[str, 
             for srv in servers:
                 process_ribcl_server(oa, srv, ldap_ca_cert, global_results)
                 
-                result = global_results[srv["ilo_ip"]]
+                result = global_results[srv["result_key"]]
                 if result.get("bootstrap_ok") is True:
                     future = redfish_executor.submit(process_redfish, srv, global_results, trigger_reboot)
                     with redfish_lock:
@@ -675,7 +768,7 @@ def ribcl_worker(worker_number: int, active_oa_ip: str, servers: List[Dict[str, 
 
     except Exception as exc:
         for srv in servers:
-            result = global_results[srv["ilo_ip"]]
+            result = global_results[srv["result_key"]]
             if result.get("bootstrap_ok") is None:
                 result["bootstrap_ok"] = False
                 result["Auth"] = TaskStatus.FAIL.value
@@ -705,10 +798,14 @@ class ILORedfishProcessor:
         })
 
         retry_strategy = Retry(
-            total=AUTH_RETRIES,
-            backoff_factor=1,
+            total=HTTP_SAFE_RETRIES,
+            connect=HTTP_SAFE_RETRIES,
+            read=HTTP_SAFE_RETRIES,
+            status=HTTP_SAFE_RETRIES,
+            backoff_factor=0.5,
             status_forcelist=[500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "POST", "PATCH", "PUT", "DELETE"]
+            allowed_methods=frozenset(["HEAD", "GET", "OPTIONS"]),
+            raise_on_status=False,
         )
         adapter = HTTPAdapter(pool_connections=4, pool_maxsize=4, max_retries=retry_strategy)
         self.session.mount("https://", adapter)
@@ -770,39 +867,76 @@ class ILORedfishProcessor:
             f"{self.base_url}/rest/v1/Sessions",
         ]
         last_error = None
+        selected_endpoint = None
+
         for attempt in range(1, AUTH_RETRIES + 1):
-            for auth_url in session_endpoints:
+            endpoints = [selected_endpoint] if selected_endpoint else session_endpoints
+            delayed = False
+
+            for auth_url in endpoints:
+                if not auth_url:
+                    continue
                 try:
                     resp = self._post(auth_url, {"UserName": self.login, "Password": self.password})
+
+                    if resp.status_code in (404, 405) and selected_endpoint is None:
+                        continue
+
+                    # Once an endpoint responds as an authentication endpoint, keep using it.
+                    if resp.status_code not in (404, 405):
+                        selected_endpoint = auth_url
+
                     if resp.status_code in (400, 401, 403):
                         err_msg = self._extract_error_message(resp)
                         last_error = f"HTTP {resp.status_code}: {err_msg}"
-                        
+
                         if "LoginAttemptDelayed" in err_msg or "LoginAttemptDelayed" in (resp.text or ""):
-                            log(self.slot, self.ip, f"iLO authentication locked temporarily (attempt {attempt}/{AUTH_RETRIES}). Waiting 32s for penalty timeout to clear...")
-                            time.sleep(32)
+                            log(
+                                self.slot,
+                                self.ip,
+                                f"iLO authentication temporarily delayed (attempt {attempt}/{AUTH_RETRIES}). "
+                                f"Waiting {LOGIN_PENALTY_WAIT}s for the penalty timeout...",
+                            )
+                            time.sleep(LOGIN_PENALTY_WAIT)
+                            delayed = True
                             break
-                        
-                        if attempt < AUTH_RETRIES: time.sleep(AUTH_RETRY_DELAY)
-                        continue
-                        
-                    if resp.status_code == 404:
+
+                        # 401/403 proves the endpoint exists. Do not multiply bad-login
+                        # attempts across legacy endpoint fallbacks.
+                        if resp.status_code in (401, 403):
+                            break
+
+                        # A 400 can mean an incompatible legacy/session URI; before an
+                        # endpoint is established, allow the next compatibility URI.
+                        if selected_endpoint == auth_url and attempt < AUTH_RETRIES:
+                            break
                         continue
 
                     resp.raise_for_status()
                     token = resp.headers.get("X-Auth-Token")
-                    if not token: raise RuntimeError("No X-Auth-Token returned")
+                    if not token:
+                        raise RuntimeError("No X-Auth-Token returned")
+
                     self.session.headers["X-Auth-Token"] = token
                     location = resp.headers.get("Location")
                     if location:
-                        if location.startswith("https://"): location = re.sub(r"^https://[^/]+", "", location)
+                        if location.startswith("https://"):
+                            location = re.sub(r"^https://[^/]+", "", location)
                         self.session_uri = location
+
                     self.res["Auth"] = TaskStatus.OK.value
                     return True
+
                 except Exception as exc:
                     last_error = str(exc)
-                    if attempt < AUTH_RETRIES: time.sleep(AUTH_RETRY_DELAY)
-                    
+                    if selected_endpoint:
+                        break
+
+            if delayed:
+                continue
+            if attempt < AUTH_RETRIES:
+                time.sleep(AUTH_RETRY_DELAY)
+
         mark_failure(self.res, "Auth", last_error or "Authentication failed")
         return False
 
@@ -919,8 +1053,10 @@ class ILORedfishProcessor:
 
             need_hostname = not values_equal_case_insensitive(current_hostname, ilo_short_hostname)
             need_domain = not values_equal_case_insensitive(current_domain, ilo_domain)
-            need_dhcp4 = dhcp4.get("UseDNSServers") is not False or dhcp4.get("UseDomainName") is not False
-            need_dhcp6 = dhcp6.get("UseDNSServers") is not False or dhcp6.get("UseDomainName") is not False
+            
+            # Explicitly force UseNTPServers to False in DHCP so it doesn't lock our SNTP patch
+            need_dhcp4 = dhcp4.get("UseDNSServers") is not False or dhcp4.get("UseDomainName") is not False or dhcp4.get("UseNTPServers") is not False
+            need_dhcp6 = dhcp6.get("UseDNSServers") is not False or dhcp6.get("UseDomainName") is not False or dhcp6.get("UseNTPServers") is not False
             need_dns = list(current_dns or []) != desired_dns
 
             if not any((need_hostname, need_domain, need_dhcp4, need_dhcp6, need_dns)):
@@ -930,8 +1066,8 @@ class ILORedfishProcessor:
             hp_payload = {}
             if need_hostname: hp_payload["HostName"] = ilo_short_hostname
             if need_domain: hp_payload["DomainName"] = ilo_domain
-            if need_dhcp4: hp_payload["DHCPv4"] = {"UseDNSServers": False, "UseDomainName": False}
-            if need_dhcp6: hp_payload["DHCPv6"] = {"UseDNSServers": False, "UseDomainName": False}
+            if need_dhcp4: hp_payload["DHCPv4"] = {"UseDNSServers": False, "UseDomainName": False, "UseNTPServers": False}
+            if need_dhcp6: hp_payload["DHCPv6"] = {"UseDNSServers": False, "UseDomainName": False, "UseNTPServers": False}
             if need_dns: hp_payload["IPv4"] = {"DNSServers": desired_dns}
 
             combined_payload = {"Oem": {"Hp": hp_payload}}
@@ -943,8 +1079,8 @@ class ILORedfishProcessor:
 
             log(self.slot, self.ip, "Combined network PATCH rejected; using sliced iLO 4 fallback...")
             sliced_payloads = []
-            if need_dhcp4: sliced_payloads.append({"Oem": {"Hp": {"DHCPv4": {"UseDNSServers": False, "UseDomainName": False}}}})
-            if need_dhcp6: sliced_payloads.append({"Oem": {"Hp": {"DHCPv6": {"UseDNSServers": False, "UseDomainName": False}}}})
+            if need_dhcp4: sliced_payloads.append({"Oem": {"Hp": {"DHCPv4": {"UseDNSServers": False, "UseDomainName": False, "UseNTPServers": False}}}})
+            if need_dhcp6: sliced_payloads.append({"Oem": {"Hp": {"DHCPv6": {"UseDNSServers": False, "UseDomainName": False, "UseNTPServers": False}}}})
             if need_hostname: sliced_payloads.append({"Oem": {"Hp": {"HostName": ilo_short_hostname}}})
             if need_domain: sliced_payloads.append({"Oem": {"Hp": {"DomainName": ilo_domain}}})
             if need_dns: sliced_payloads.append({"Oem": {"Hp": {"IPv4": {"DNSServers": desired_dns}}}})
@@ -955,6 +1091,99 @@ class ILORedfishProcessor:
 
         except Exception as exc:
             self._handle_error("Net", exc)
+
+    def configure_sntp(self, ntp_primary: str, ntp_secondary: str, target_tz_search: str):
+        try:
+            # 1. Fetch DateTime URL from Manager Link
+            mgr_url = f"{self.base_url}/redfish/v1/Managers/1/"
+            resp = self._get(mgr_url)
+            resp.raise_for_status()
+            
+            dt_uri = resp.json().get("Oem", {}).get("Hp", {}).get("Links", {}).get("DateTime", {}).get("@odata.id")
+            if not dt_uri:
+                dt_uri = "/redfish/v1/Managers/1/DateTime/"
+                
+            dt_url = f"{self.base_url}{dt_uri}"
+            dt_resp = self._get(dt_url)
+            if dt_resp.status_code == 404:
+                self.res["SNTP"] = TaskStatus.SKIP.value
+                return
+                
+            dt_resp.raise_for_status()
+            data = dt_resp.json()
+            
+            # 2. Extract NTP locations (handling iLO 4 Oem structure)
+            current_ntp = data.get("StaticNTPServers")
+            if current_ntp is None:
+                current_ntp = data.get("Oem", {}).get("Hp", {}).get("StaticNTPServers", [])
+                
+            desired_ntp = []
+            if ntp_primary: desired_ntp.append(ntp_primary)
+            if ntp_secondary: desired_ntp.append(ntp_secondary)
+            
+            while len(desired_ntp) < 2:
+                desired_ntp.append("")
+                
+            need_ntp = (list(current_ntp or []) != desired_ntp)
+
+            # 3. Extract Timezone locations (handling iLO 4 Oem structure)
+            tz_list = data.get("TimeZoneList")
+            if tz_list is None:
+                tz_list = data.get("Oem", {}).get("Hp", {}).get("TimeZoneList", [])
+                
+            target_index = None
+            for tz in tz_list:
+                name = tz.get("Name", "")
+                value = tz.get("Value", "")
+                if target_tz_search.lower() in name.lower() or target_tz_search.lower() in value.lower():
+                    target_index = tz.get("Index")
+                    break
+                    
+            if target_index is None:
+                log(self.slot, self.ip, f"  -> Warning: Timezone matching '{target_tz_search}' not found in iLO TimeZoneList.")
+            
+            current_tz = data.get("TimeZone", {})
+            if not current_tz:
+                current_tz = data.get("Oem", {}).get("Hp", {}).get("TimeZone", {})
+                
+            current_tz_index = current_tz.get("Index")
+            need_tz = (target_index is not None and current_tz_index != target_index)
+
+            if not need_ntp and not need_tz:
+                self.res["SNTP"] = TaskStatus.SKIP.value
+                return
+                
+            payload = {}
+            oem_hp = {}
+            
+            if need_ntp:
+                if "StaticNTPServers" in data:
+                    payload["StaticNTPServers"] = desired_ntp
+                else:
+                    oem_hp["StaticNTPServers"] = desired_ntp
+                    
+            if need_tz:
+                if "TimeZone" in data:
+                    payload["TimeZone"] = {"Index": target_index}
+                else:
+                    oem_hp["TimeZone"] = {"Index": target_index}
+                    
+            if oem_hp:
+                payload["Oem"] = {"Hp": oem_hp}
+                
+            patch_resp = self._patch_with_post_handling(dt_url, payload)
+            
+            if patch_resp.status_code >= 400 and "SNTPConfigurationManagedByDHCPAndIsReadOnly" in (patch_resp.text or ""):
+                log(self.slot, self.ip, "SNTP is managed by DHCP; unable to override settings via Redfish.")
+                self.res["SNTP"] = TaskStatus.SKIP.value
+                return
+                
+            patch_resp.raise_for_status()
+            self.res["SNTP"] = TaskStatus.OK.value
+            self.res["ilo_reset_needed"] = True
+            
+        except Exception as exc:
+            self._handle_error("SNTP", exc)
 
     def configure_ipmi(self, target_port: int):
         try:
@@ -1051,11 +1280,57 @@ class ILORedfishProcessor:
         except Exception as exc:
             self._handle_error("Reboot", exc)
 
+    def reset_ilo(self):
+        """Resets the iLO Manager to apply SNTP changes without hanging."""
+        try:
+            log(self.slot, self.ip, "Sending iLO reset command to apply SNTP changes...")
+            
+            reset_timeout = 5
+            headers = self.session.headers.copy()
+            
+            endpoints = [
+                f"{self.base_url}/redfish/v1/Managers/1/Actions/Manager.Reset",
+                f"{self.base_url}/redfish/v1/Managers/1/Actions/Oem/Hp/Manager.Reset",
+                f"{self.base_url}/rest/v1/Managers/1/Actions/Manager.Reset"
+            ]
+            
+            payloads = [
+                {"ResetType": "ForceRestart"},
+                {"ResetType": "GracefulRestart"},
+                {"Action": "Manager.Reset"},
+                {"Action": "Reset"},
+                {}
+            ]
+            
+            success = False
+            for url in endpoints:
+                for payload in payloads:
+                    try:
+                        resp = requests.post(url, json=payload, headers=headers, verify=False, timeout=reset_timeout)
+                        if resp.status_code in (200, 201, 202, 204):
+                            success = True
+                            break
+                    except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout, requests.exceptions.Timeout):
+                        # A dropped connection means the iLO is successfully rebooting
+                        success = True
+                        break
+                if success:
+                    break
+                    
+            if success:
+                log(self.slot, self.ip, "  -> iLO reset command sent successfully.")
+                self.session_uri = None
+            else:
+                log(self.slot, self.ip, "  -> Warning: All iLO reset payloads failed (HTTP 400). Manual reset may be required.")
+            
+        except Exception as exc:
+            log(self.slot, self.ip, f"  -> Warning: iLO reset failed: {exc}")
+
 
 def process_redfish(srv: Dict[str, Any], global_results: Dict[str, Dict[str, Any]], trigger_reboot: bool):
     ip = srv["ilo_ip"]
     slot = srv["enclosure_slot"]
-    result = global_results[ip]
+    result = global_results[srv["result_key"]]
     scope_data = SCOPE_SETTINGS[srv["scope"]]
     start = time.monotonic()
 
@@ -1067,6 +1342,7 @@ def process_redfish(srv: Dict[str, Any], global_results: Dict[str, Dict[str, Any
             ilo.configure_license(ILO_ADVANCED_LICENSE_KEY)
             ilo.configure_fence_user(FENCE_USER_NAME, FENCE_USER_LOGIN, FENCE_USER_PASSWORD)
             ilo.configure_network(srv["ilo_hostname"], scope_data["PRIMARY_DNS"], scope_data["SECONDARY_DNS"])
+            ilo.configure_sntp(scope_data.get("NTP_PRIMARY", ""), scope_data.get("NTP_SECONDARY", ""), ILO_TIMEZONE_SEARCH)
             ilo.configure_ipmi(IPMI_PORT)
             ilo.configure_boot()
 
@@ -1074,6 +1350,9 @@ def process_redfish(srv: Dict[str, Any], global_results: Dict[str, Dict[str, Any
                 ilo.reboot_server()
             else:
                 result["Reboot"] = TaskStatus.SKIP.value
+                
+            if result.get("ilo_reset_needed"):
+                ilo.reset_ilo()
 
     except Exception as exc:
         result["status"] = "Failed Tasks"
@@ -1088,10 +1367,17 @@ def process_redfish(srv: Dict[str, Any], global_results: Dict[str, Dict[str, Any
 # ============================================================================
 
 def recalculate_overall_status(result: Dict[str, Any]):
-    if result["status"] == "Missing Cols": return
-    tracked = ["Auth", "Lic", "Usr", "Net", "IPMI", "ID", "LDAP", "Cert", "Boot", "Reboot"]
-    if any(result.get(step) == TaskStatus.FAIL.value for step in tracked):
+    if result["status"] == "Missing Cols":
+        return
+
+    tracked = ["Auth", "Lic", "Usr", "Net", "SNTP", "IPMI", "ID", "LDAP", "Cert", "Boot", "Reboot"]
+    failed = [step for step in tracked if result.get(step) == TaskStatus.FAIL.value]
+    pending = [step for step in tracked if result.get(step) == TaskStatus.PENDING.value]
+
+    if failed or pending:
         result["status"] = "Failed Tasks"
+        if pending:
+            result["errors"].append("[Final Status] Unfinished tasks: " + ", ".join(pending))
     else:
         result["status"] = "Successful"
 
@@ -1159,7 +1445,7 @@ def main():
     servers_to_process = []
     global_results = {}
 
-    for row in blade_df.itertuples(index=False):
+    for row_index, row in enumerate(blade_df.itertuples(index=False), start=1):
         try: slot_num = int(float(row.enclosure_slot))
         except Exception: slot_num = 999
         ip = str(row.ilo_ip).strip() or "Unknown"
@@ -1168,14 +1454,16 @@ def main():
         scope = str(row.scope).strip().upper()
         if not missing and scope not in SCOPE_SETTINGS: missing.append(f"Invalid Scope: {scope}")
 
+        result_key = f"{slot_num}:{ip}:{row_index}"
         result = {
             "slot": slot_num, "ip": ip, "status": "Successful",
             "Auth": TaskStatus.PENDING.value, "Lic": TaskStatus.PENDING.value, "Usr": TaskStatus.PENDING.value,
-            "Net": TaskStatus.PENDING.value, "IPMI": TaskStatus.PENDING.value, "ID": TaskStatus.PENDING.value,
-            "LDAP": TaskStatus.PENDING.value, "Cert": TaskStatus.PENDING.value, "Boot": TaskStatus.PENDING.value,
-            "Reboot": TaskStatus.PENDING.value, "bootstrap_ok": None, "ribcl_seconds": 0.0, "redfish_seconds": 0.0, "errors": [],
+            "Net": TaskStatus.PENDING.value, "SNTP": TaskStatus.PENDING.value, "IPMI": TaskStatus.PENDING.value, 
+            "ID": TaskStatus.PENDING.value, "LDAP": TaskStatus.PENDING.value, "Cert": TaskStatus.PENDING.value, 
+            "Boot": TaskStatus.PENDING.value, "Reboot": TaskStatus.PENDING.value, 
+            "bootstrap_ok": None, "ilo_reset_needed": False, "ribcl_seconds": 0.0, "redfish_seconds": 0.0, "errors": [],
         }
-        global_results[ip] = result
+        global_results[result_key] = result
 
         if missing:
             result["status"] = "Missing Cols"
@@ -1191,7 +1479,7 @@ def main():
             continue
 
         servers_to_process.append({
-            "enclosure_slot": slot_num, "ilo_ip": ip, "scope": scope,
+            "result_key": result_key, "enclosure_slot": slot_num, "ilo_ip": ip, "scope": scope,
             "hostname": str(row.hostname).strip(), "ilo_hostname": str(row.ilo_hostname).strip(),
             "ilo_short_hostname": ilo_short, "ilo_domain": ilo_domain,
         })
@@ -1250,9 +1538,9 @@ def main():
             srv = redfish_futures[future]
             try: future.result()
             except Exception as exc:
-                ip = srv["ilo_ip"]
-                global_results[ip]["status"] = "Failed Tasks"
-                global_results[ip]["errors"].append(f"[Worker] Unhandled exception: {exc}")
+                result = global_results[srv["result_key"]]
+                result["status"] = "Failed Tasks"
+                result["errors"].append(f"[Worker] Unhandled exception: {exc}")
                 
         timings["Redfish"] = time.monotonic() - config_start - timings["RIBCL"]
 
@@ -1261,11 +1549,11 @@ def main():
     report_start = time.monotonic()
     report_list = sorted(global_results.values(), key=lambda item: item["slot"])
 
-    logger.info("\n\n" + "=" * 152)
+    logger.info("\n\n" + "=" * 159)
     logger.info(f"FINAL EXECUTION REPORT: Enclosure '{target_enclosure}'")
-    logger.info("=" * 152)
-    logger.info(f"{'SLOT':<5} | {'iLO IP':<15} | {'OVERALL STATUS':<15} | {'AUTH':<4} | {'LIC':<4} | {'USR':<4} | {'NET':<4} | {'IPMI':<4} | {'ID':<4} | {'LDAP':<4} | {'CERT':<4} | {'BOOT':<4} | {'RBT':<4} | {'RIBCL(s)':>8} | {'RF(s)':>8}")
-    logger.info("-" * 152)
+    logger.info("=" * 159)
+    logger.info(f"{'SLOT':<5} | {'iLO IP':<15} | {'OVERALL STATUS':<15} | {'AUTH':<4} | {'LIC':<4} | {'USR':<4} | {'NET':<4} | {'SNTP':<4} | {'IPMI':<4} | {'ID':<4} | {'LDAP':<4} | {'CERT':<4} | {'BOOT':<4} | {'RBT':<4} | {'RIBCL(s)':>8} | {'RF(s)':>8}")
+    logger.info("-" * 159)
 
     success_count = fail_count = skip_count = 0
     all_errors = []
@@ -1281,7 +1569,7 @@ def main():
         logger.info(
             f"{slot_display:<5} | {result['ip']:<15} | {status:<15} | "
             f"{result['Auth']:<4} | {result['Lic']:<4} | {result['Usr']:<4} | "
-            f"{result['Net']:<4} | {result['IPMI']:<4} | {result['ID']:<4} | "
+            f"{result['Net']:<4} | {result['SNTP']:<4} | {result['IPMI']:<4} | {result['ID']:<4} | "
             f"{result['LDAP']:<4} | {result['Cert']:<4} | {result['Boot']:<4} | "
             f"{result['Reboot']:<4} | "
             f"{result['ribcl_seconds']:>8.2f} | {result['redfish_seconds']:>8.2f}"
@@ -1289,9 +1577,9 @@ def main():
 
         if result["errors"]: all_errors.append((slot_display, result["ip"], result["errors"]))
 
-    logger.info("-" * 152)
+    logger.info("-" * 159)
     logger.info(f"TOTAL FOUND: {total_rows} | SUCCESSFUL: {success_count} | FAILED: {fail_count} | SKIPPED: {skip_count}")
-    logger.info("=" * 152)
+    logger.info("=" * 159)
 
     if all_errors:
         logger.info("\nFAILURE DETAILS:")
@@ -1306,12 +1594,16 @@ def main():
         CSV_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(CSV_REPORT_PATH, mode='w', newline='', encoding='utf-8') as csv_file:
             if report_list:
-                fieldnames = list(report_list[0].keys())
+                # Omit tracking variable from CSV
+                internal_fields = {"ilo_reset_needed", "bootstrap_ok"}
+                fieldnames = [key for key in report_list[0].keys() if key not in internal_fields]
                 writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                 writer.writeheader()
                 
                 for row in report_list:
                     row_copy = row.copy()
+                    row_copy.pop("ilo_reset_needed", None)
+                    row_copy.pop("bootstrap_ok", None)
                     if isinstance(row_copy.get('errors'), list):
                         row_copy['errors'] = " | ".join(row_copy['errors'])
                     writer.writerow(row_copy)
