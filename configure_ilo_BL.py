@@ -344,11 +344,6 @@ def ribcl_errors(output: str, allowed_statuses=("0X0000",)) -> List[str]:
     if not responses: return ["No RIBCL RESPONSE elements returned"]
     return [f"{status}: {message or 'Unknown error'}" for status, message in responses if status not in allowed]
 
-def ribcl_user_exists(output: str, login_name: str) -> bool:
-    # Changed back to USER_LOGIN VALUE= to match actual iLO return instead of echoed string
-    pattern = r"<USER_LOGIN\s+VALUE\s*=\s*[\"']" + re.escape(login_name) + r"[\"']"
-    return bool(re.search(pattern, output, flags=re.IGNORECASE))
-
 def get_ribcl_value(output: str, tag_name: str) -> Optional[str]:
     pattern = r"<" + re.escape(tag_name) + r"\b[^>]*VALUE\s*=\s*[\"']([^\"']*)[\"']"
     match = re.search(pattern, output, flags=re.IGNORECASE | re.DOTALL)
@@ -463,6 +458,7 @@ class OAConnection:
                 elif time.monotonic() - quiet_since >= COMMAND_QUIET_TIME: break
                 time.sleep(0.05)
                 
+        # Handle POST lock automatically by detecting the specific error code/message in the response
         if retry_on_post and ("0X00D4" in output.upper() or "POST IN PROGRESS" in output.upper()):
             try: slot_str = f"{int(bay_number):02}"
             except Exception: slot_str = str(bay_number)
@@ -508,22 +504,26 @@ def ensure_bootstrap_admin(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict
 
     if DEBUG: debug_block(f"USER CHECK - BAY {slot}", output)
 
-    if ribcl_user_exists(output, ILO_LOGIN):
+    responses = parse_ribcl_responses(output)
+    statuses = [st for st, msg in responses]
+
+    # iLO returns 0X0119 or 0X0112 if the user explicitly does NOT exist.
+    if "0X0119" not in statuses and "0X0112" not in statuses:
+        # Check for any other fatal syntax/auth errors before assuming it exists
+        unexpected = [f"{st}: {msg}" for st, msg in responses if st not in ("0X0000", "0X000A")]
+        if unexpected:
+            if DEBUG_ON_FAILURE: debug_block(f"FAILED USER CHECK - BAY {slot}", output, force=True)
+            for error in unexpected: res_dict["errors"].append(f"[Bootstrap] {error}")
+            res_dict["Auth"] = TaskStatus.FAIL.value
+            res_dict["status"] = "Failed Tasks"
+            res_dict["bootstrap_ok"] = False
+            return False
+            
         log(slot, ip, f"  -> '{ILO_LOGIN}' already exists.")
         res_dict["bootstrap_ok"] = True
         return True
 
-    responses = parse_ribcl_responses(output)
-    unexpected = [f"{st}: {msg}" for st, msg in responses if st not in ("0X0000", "0X000A", "0X0119", "0X0112")]
-
-    if unexpected:
-        if DEBUG_ON_FAILURE: debug_block(f"FAILED USER CHECK - BAY {slot}", output, force=True)
-        for error in unexpected: res_dict["errors"].append(f"[Bootstrap] {error}")
-        res_dict["Auth"] = TaskStatus.FAIL.value
-        res_dict["status"] = "Failed Tasks"
-        res_dict["bootstrap_ok"] = False
-        return False
-
+    # User does not exist, proceed to create
     log(slot, ip, f"  -> Creating '{ILO_LOGIN}'...")
     try:
         output = oa.execute_hponcfg(slot, build_ribcl_user_add())
@@ -532,7 +532,7 @@ def ensure_bootstrap_admin(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict
         res_dict["bootstrap_ok"] = False
         return False
 
-    # The magic bullet: We allow 0X0007 (The login/user name already exists) as a valid success code
+    # Check for success (0X0000) OR safe fallback (0X0007: User already exists)
     errors = ribcl_errors(output, allowed_statuses=("0X0000", "0X0007"))
     if errors:
         if DEBUG_ON_FAILURE: debug_block(f"FAILED USER CREATE - BAY {slot}", output, force=True)
