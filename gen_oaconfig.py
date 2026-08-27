@@ -1,258 +1,903 @@
+# BUILD_MARKER: OA_CONFIG_CENTRAL_V2_FULL_WORKBOOK_20260828
+
 import os
-import pandas as pd
+import sys
+
+import openpyxl
 from jinja2 import Environment, FileSystemLoader
 
-# ==========================================
-# 1. Variables Definition
-# ==========================================
+from functions import vars
 
-# Scope-specific network variables mapping
-scope_vars = {
-    "SIL": {
-            "gateway": "10.101.18.1",
-            "mask": "255.255.254.0",
-            "dns1": "10.130.2.11",
-            "dns2": "10.130.2.12",
-            "ntp1": "10.101.18.1",
-            "ntp2": "10.130.2.11",
-            "domain_controller": "INFCOSADU001MP.mak.iss"
-        },
-    "MTR": {
-        "gateway": "10.101.18.1",
-        "mask": "255.255.254.0",
-        "dns1": "10.130.2.11",
-        "dns2": "10.130.2.12",
-        "ntp1": "10.101.18.1",
-        "ntp2": "10.130.2.11",
-        "domain_controller": "INFCOSADU001MP.mak.iss"
-    },
-    "RTR": {
-        "gateway": "10.102.18.1",              # Fill with RTR specific gateway
-        "mask": "255.255.254.0",                 # Fill with RTR specific mask
-        "dns1": "10.130.4.11",                 # Fill with RTR specific DNS1
-        "dns2": "10.130.4.12",                 # Fill with RTR specific DNS2
-        "ntp1": "10.102.18.1",                 # Fill with RTR specific NTP1
-        "ntp2": "10.130.2.11",                 # Fill with RTR specific NTP2
-        "domain_controller": "INFCOSADU001RP.mak.iss"     # Fill with RTR specific DC
-    }
-}
 
-# Standard global variables
-domain = "mak.iss"
-ilo_admin_group = "ILOAdmins"
-ldap_search_01 = "OU=IT,OU=ISS,DC=mak,DC=iss"
-ldap_search_02 = "CN=Users,DC=mak,DC=iss"
-ldap_search_03 = "CN=Builtin,DC=mak,DC=iss"
-remote_syslog_server = "10.130.2.11"
-snmp_community = "ISS-PUB"
-snmp_contact = "Aftab Ahmed"
-snmp_location = "Makkah"
+# ============================================================================
+# HELPERS
+# ============================================================================
 
-# File Variables
-dc_resource_list = "Resource List-v7.6.xlsx"
-config_template = "OACONFIG.j2"
-
-# Certificate File Variables 
-iss_app_cert_file = "iss_app_cert.pem"
-iss_nws_cert_file = "iss_nws_cert.pem"
-
-# ==========================================
-# 2. Path Setup
-# ==========================================
-base_dir = os.path.dirname(os.path.abspath(__file__))
-templates_dir = os.path.join(base_dir, "Templates")
-output_dir = os.path.join(base_dir, "oaconfig_scripts")
-
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-
-excel_file_path = os.path.join(templates_dir, dc_resource_list)
-
-# Load Certificate Contents
-app_cert_path = os.path.join(templates_dir, iss_app_cert_file)
-nws_cert_path = os.path.join(templates_dir, iss_nws_cert_file)
-
-cert_1_content = ""
-if os.path.exists(app_cert_path):
-    with open(app_cert_path, 'r', encoding='utf-8') as f:
-        cert_1_content = f.read().strip()
-else:
-    print(f"Warning: Certificate file not found: {app_cert_path}")
-
-cert_2_content = ""
-if os.path.exists(nws_cert_path):
-    with open(nws_cert_path, 'r', encoding='utf-8') as f:
-        cert_2_content = f.read().strip()
-else:
-    print(f"Warning: Certificate file not found: {nws_cert_path}")
-
-# ==========================================
-# 3. Helper Functions
-# ==========================================
 def generate_rack_name(enc_name):
+    """Generate rack name from the enclosure physical name."""
     try:
-        parts = str(enc_name).strip().split('-')
-        if len(parts) >= 3 and parts[0] == "SV":
+        parts = str(enc_name).strip().split("-")
+
+        if (
+            len(parts) >= 3
+            and parts[0] == "SV"
+        ):
             site = parts[1]
             num_part = parts[2]
+
             if len(num_part) == 4:
-                return f"RA-{site}-A{num_part[1]}-{num_part[2:4]}"
-    except Exception as e:
-        print(f"Could not parse rack name for {enc_name}: {e}")
+                return "RA-{}-A{}-{}".format(
+                    site,
+                    num_part[1],
+                    num_part[2:4],
+                )
+
+    except Exception as exc:
+        print(
+            "Could not parse rack name for {}: {}"
+            .format(
+                enc_name,
+                exc,
+            )
+        )
+
     return "UNKNOWN_RACK"
 
+
+def is_empty(value):
+    """Return True when a value matches the project's global empty values."""
+    if value is None:
+        return True
+
+    return (
+        str(value)
+        .strip()
+        .upper()
+        in vars.INVALID_VALUES
+    )
+
+
 def get_val(row, col_name):
-    """Safely retrieves a value, treating 'nan' or 'N.A' as empty."""
-    val = str(row.get(col_name, '')).strip()
-    if val.lower() == 'nan' or val == 'n.a':
+    """Safely retrieve one normalized Excel value."""
+    value = row.get(
+        col_name,
+        "",
+    )
+
+    if is_empty(value):
         return ""
-    return val
 
-# ==========================================
-# 4. Read and Process Excel Data
-# ==========================================
-print(f"Loading Excel file from: {excel_file_path}")
-df = pd.read_excel(excel_file_path, sheet_name="General Resource List", dtype=str, engine="openpyxl")
-df.columns = df.columns.str.strip()
+    return str(
+        value
+    ).strip()
 
-# --- VALIDATION: Check for missing columns entirely ---
-required_cols = ['equipment_type', 'enclosure_physical_name', 'scope', 'enclosure_slot', 'hostname', 'ilo_ip']
-missing_cols = [col for col in required_cols if col not in df.columns]
-if missing_cols:
-    print(f"\n[!] CRITICAL WARNING: The following required columns are missing from the Excel file: {', '.join(missing_cols)}")
-    print("The script may fail to extract necessary data.\n")
 
-# Filter down to valid physical names
-filtered_df = df[
-    (df['enclosure_physical_name'].notna()) & 
-    (df['enclosure_physical_name'].str.strip() != 'N.A')
-]
+def load_certificate(file_path):
+    """Load a PEM certificate/template fragment if present."""
+    if not os.path.isfile(
+        file_path
+    ):
+        print(
+            "Warning: Certificate file not found: {}"
+            .format(
+                file_path
+            )
+        )
 
-enclosures_data = []
-current_enclosure = None
+        return ""
 
-for index, row in filtered_df.iterrows():
-    # Excel row number for warning messages (+2 accounts for header and 0-index)
-    excel_row = index + 2 
-    
-    eq_type = get_val(row, 'equipment_type')
-    enc_phys_name = get_val(row, 'enclosure_physical_name')
-    current_scope = get_val(row, 'scope')
-    
-    # 1. Server Enclosures
-    if eq_type == "Server Enclosure":
-        # VALIDATION: Check Scope
-        if not current_scope:
-            print(f"  [!] WARNING (Row {excel_row}): Missing 'scope' for Server Enclosure '{enc_phys_name}'. Network variables will not load.")
-            
-        enc_name = enc_phys_name
-        
-        current_enclosure = {
-            "enc_name": enc_name,
-            "rack_name": generate_rack_name(enc_name),
-            "scope": current_scope,
-            "oa01_name": "",
-            "oa01_ip": "",
-            "oa02_name": "",
-            "oa02_ip": ""
-        }
-        
-        # Pre-fill all slots to prevent Jinja errors
-        for i in range(1, 17):
-            current_enclosure[f"name_blade_{str(i).zfill(2)}"] = ""
-            current_enclosure[f"ip_blade_{str(i).zfill(2)}"] = ""
-        for i in range(1, 9):
-            current_enclosure[f"name_interconnect_{str(i).zfill(2)}"] = ""
-            current_enclosure[f"interconnect_{str(i).zfill(2)}"] = ""
-            
-        enclosures_data.append(current_enclosure)
-        
-    # 2. Components belonging to an enclosure (OAs, Blades, Switches)
-    elif eq_type in ["Enclosure OA", "NVR Blade Server", "VCA Blade Server", "Enclosure Switch"] and current_enclosure is not None:
-        slot = get_val(row, 'enclosure_slot')
-        ip = get_val(row, 'ilo_ip')
-        hostname = get_val(row, 'hostname')
-        
-        # VALIDATION: Check Slots and IPs
+    with open(
+        file_path,
+        "r",
+        encoding="utf-8",
+    ) as handle:
+        return handle.read().strip()
+
+
+def load_complete_excel(
+    file_path,
+    sheet_name,
+):
+    """
+    Load the complete configured worksheet using openpyxl read-only mode.
+
+    Excel row 1 contains headers. Every populated row from Excel row 2 through
+    the end of the worksheet is considered. Empty rows are skipped, but they do
+    not stop the scan, so enclosures separated by blank areas are still found.
+    """
+    workbook = openpyxl.load_workbook(
+        file_path,
+        read_only=True,
+        data_only=True,
+    )
+
+    try:
+        if sheet_name not in workbook.sheetnames:
+            raise ValueError(
+                "Sheet '{}' not found in workbook."
+                .format(
+                    sheet_name
+                )
+            )
+
+        worksheet = workbook[
+            sheet_name
+        ]
+
+        header_values = next(
+            worksheet.iter_rows(
+                min_row=1,
+                max_row=1,
+                values_only=True,
+            ),
+            None,
+        )
+
+        if not header_values:
+            return []
+
+        headers = []
+
+        for index, cell in enumerate(
+            header_values
+        ):
+            if (
+                cell is None
+                or str(cell).strip() == ""
+            ):
+                header = (
+                    "Unnamed_{}"
+                    .format(
+                        index
+                    )
+                )
+            else:
+                header = str(
+                    cell
+                ).strip()
+
+            headers.append(
+                header
+            )
+
+        records = []
+
+        for excel_row, values in enumerate(
+            worksheet.iter_rows(
+                min_row=2,
+                values_only=True,
+            ),
+            start=2,
+        ):
+            if all(
+                value is None
+                or str(value).strip() == ""
+                for value in values
+            ):
+                continue
+
+            row_values = list(
+                values[:len(headers)]
+            )
+
+            if len(row_values) < len(headers):
+                row_values.extend(
+                    [None]
+                    * (
+                        len(headers)
+                        - len(row_values)
+                    )
+                )
+
+            record = dict(
+                zip(
+                    headers,
+                    row_values,
+                )
+            )
+
+            record[
+                "_excel_row"
+            ] = excel_row
+
+            records.append(
+                record
+            )
+
+        return records
+
+    finally:
+        workbook.close()
+
+
+def validate_columns(records):
+    """Verify that the workbook includes all columns required by OA generation."""
+    if not records:
+        return []
+
+    present = set(
+        records[0].keys()
+    )
+
+    return [
+        column
+        for column in vars.OA_REQUIRED_COLUMNS
+        if column not in present
+    ]
+
+
+def get_scope_template_vars(scope_name):
+    """
+    Convert shared ILO_SCOPE_SETTINGS names to the variable names expected by
+    OACONFIG.j2.
+    """
+    scope = str(
+        scope_name
+    ).strip().upper()
+
+    scope_data = vars.ILO_SCOPE_SETTINGS.get(
+        scope
+    )
+
+    if not scope_data:
+        return {}
+
+    return {
+        "gateway": scope_data.get(
+            "GATEWAY",
+            "",
+        ),
+        "mask": scope_data.get(
+            "SUBNET_MASK",
+            "",
+        ),
+        "dns1": scope_data.get(
+            "PRIMARY_DNS",
+            "",
+        ),
+        "dns2": scope_data.get(
+            "SECONDARY_DNS",
+            "",
+        ),
+        "ntp1": scope_data.get(
+            "PRIMARY_NTP",
+            "",
+        ),
+        "ntp2": scope_data.get(
+            "SECONDARY_NTP",
+            "",
+        ),
+        "domain_controller": scope_data.get(
+            "DIRECTORY_SERVER",
+            "",
+        ),
+    }
+
+
+def new_enclosure(
+    enc_name,
+    scope,
+):
+    """Create a complete enclosure dictionary with all Jinja slot keys."""
+    enclosure = {
+        "enc_name": enc_name,
+        "rack_name": generate_rack_name(
+            enc_name
+        ),
+        "scope": scope,
+        "oa01_name": "",
+        "oa01_ip": "",
+        "oa02_name": "",
+        "oa02_ip": "",
+    }
+
+    for slot in range(
+        1,
+        vars.OA_BLADE_SLOT_COUNT + 1,
+    ):
+        slot_text = str(
+            slot
+        ).zfill(
+            2
+        )
+
+        enclosure[
+            "name_blade_{}".format(
+                slot_text
+            )
+        ] = ""
+
+        enclosure[
+            "ip_blade_{}".format(
+                slot_text
+            )
+        ] = ""
+
+    for slot in range(
+        1,
+        vars.OA_INTERCONNECT_SLOT_COUNT + 1,
+    ):
+        slot_text = str(
+            slot
+        ).zfill(
+            2
+        )
+
+        enclosure[
+            "name_interconnect_{}".format(
+                slot_text
+            )
+        ] = ""
+
+        enclosure[
+            "interconnect_{}".format(
+                slot_text
+            )
+        ] = ""
+
+    return enclosure
+
+
+def normalize_slot(value):
+    """Normalize Excel slot values such as 1.0 to 01."""
+    text = str(
+        value
+    ).strip()
+
+    try:
+        return str(
+            int(
+                float(
+                    text
+                )
+            )
+        ).zfill(
+            2
+        )
+
+    except Exception:
+        return text
+
+
+# ============================================================================
+# INVENTORY PROCESSING
+# ============================================================================
+
+def build_enclosure_data(records):
+    """Build Jinja enclosure objects from the selected Excel rows."""
+    enclosures_data = []
+    current_enclosure = None
+
+    for row in records:
+        excel_row = row.get(
+            "_excel_row",
+            "Unknown",
+        )
+
+        eq_type = get_val(
+            row,
+            "equipment_type",
+        )
+
+        enc_phys_name = get_val(
+            row,
+            "enclosure_physical_name",
+        )
+
+        current_scope = get_val(
+            row,
+            "scope",
+        ).upper()
+
+        if (
+            eq_type
+            == vars.OA_SERVER_ENCLOSURE_TYPE
+        ):
+            if not current_scope:
+                print(
+                    "  [!] WARNING (Row {}): Missing 'scope' for "
+                    "Server Enclosure '{}'. Network variables will "
+                    "not load.".format(
+                        excel_row,
+                        enc_phys_name,
+                    )
+                )
+
+            current_enclosure = new_enclosure(
+                enc_phys_name,
+                current_scope,
+            )
+
+            enclosures_data.append(
+                current_enclosure
+            )
+
+            continue
+
+        if (
+            eq_type
+            not in vars.OA_COMPONENT_EQUIPMENT_TYPES
+        ):
+            continue
+
+        if current_enclosure is None:
+            print(
+                "  [!] WARNING (Row {}): Component '{}' appears before "
+                "a Server Enclosure row inside the configured Excel range; "
+                "skipping it.".format(
+                    excel_row,
+                    eq_type,
+                )
+            )
+
+            continue
+
+        slot = get_val(
+            row,
+            "enclosure_slot",
+        )
+
+        ip = get_val(
+            row,
+            "ilo_ip",
+        )
+
+        hostname = get_val(
+            row,
+            "hostname",
+        )
+
         if not slot:
-            print(f"  [!] WARNING (Row {excel_row}): Missing 'enclosure_slot' for {eq_type} in enclosure '{current_enclosure['enc_name']}'.")
+            print(
+                "  [!] WARNING (Row {}): Missing 'enclosure_slot' for {} "
+                "in enclosure '{}'.".format(
+                    excel_row,
+                    eq_type,
+                    current_enclosure[
+                        "enc_name"
+                    ],
+                )
+            )
+
         if not ip:
-            print(f"  [!] WARNING (Row {excel_row}): Missing 'ilo_ip' for {eq_type} (Slot: {slot}) in enclosure '{current_enclosure['enc_name']}'.")
+            print(
+                "  [!] WARNING (Row {}): Missing 'ilo_ip' for {} "
+                "(Slot: {}) in enclosure '{}'.".format(
+                    excel_row,
+                    eq_type,
+                    slot,
+                    current_enclosure[
+                        "enc_name"
+                    ],
+                )
+            )
+
         if not hostname:
-            print(f"  [!] WARNING (Row {excel_row}): Missing 'hostname' for {eq_type} (Slot: {slot}) in enclosure '{current_enclosure['enc_name']}'.")
+            print(
+                "  [!] WARNING (Row {}): Missing 'hostname' for {} "
+                "(Slot: {}) in enclosure '{}'.".format(
+                    excel_row,
+                    eq_type,
+                    slot,
+                    current_enclosure[
+                        "enc_name"
+                    ],
+                )
+            )
 
-        if slot:
-            try:
-                # Clean up slot formatting (e.g., '1.0' -> '01')
-                slot_clean = str(int(float(slot))).zfill(2)
-            except ValueError:
-                slot_clean = slot
-                
-            # Enclosure OAs
-            if eq_type == "Enclosure OA":
-                if slot_clean == "01":
-                    current_enclosure["oa01_name"] = hostname
-                    current_enclosure["oa01_ip"] = ip
-                elif slot_clean == "02":
-                    current_enclosure["oa02_name"] = hostname
-                    current_enclosure["oa02_ip"] = ip
-            
-            # Blades
-            elif eq_type in ["NVR Blade Server", "VCA Blade Server"]:
-                current_enclosure[f"name_blade_{slot_clean}"] = hostname
-                current_enclosure[f"ip_blade_{slot_clean}"] = ip
-                
-            # Interconnects
-            elif eq_type == "Enclosure Switch":
-                current_enclosure[f"name_interconnect_{slot_clean}"] = hostname
-                current_enclosure[f"interconnect_{slot_clean}"] = ip
+        if not slot:
+            continue
 
-# ==========================================
-# 5. Render Jinja Templates
-# ==========================================
-print(f"\nSetting up Jinja environment targeting: {templates_dir}")
-env = Environment(loader=FileSystemLoader(templates_dir))
-template = env.get_template(config_template)
+        slot_clean = normalize_slot(
+            slot
+        )
 
-base_vars = {
-    "domain": domain, 
-    "ilo_admin_group": ilo_admin_group, 
-    "ldap_search_01": ldap_search_01,
-    "ldap_search_02": ldap_search_02, 
-    "ldap_search_03": ldap_search_03,
-    "remote_syslog_server": remote_syslog_server, 
-    "snmp_community": snmp_community,
-    "snmp_contact": snmp_contact, 
-    "snmp_location": snmp_location,
-    "cert_1": cert_1_content, 
-    "cert_2": cert_2_content
-}
+        if (
+            eq_type
+            == vars.OA_ENCLOSURE_OA_TYPE
+        ):
+            if slot_clean == "01":
+                current_enclosure[
+                    "oa01_name"
+                ] = hostname
 
-print(f"Generating configuration files in: {output_dir}")
-for enc in enclosures_data:
-    if not enc["enc_name"]:
-        continue
-    
-    enc_scope = enc.get("scope", "")
-    network_vars = scope_vars.get(enc_scope, {})
-    
-    if not network_vars:
-        print(f"  -> Skipping generation: {enc['enc_name']} (Unknown or missing scope: '{enc_scope}')")
-        continue
-        
-    render_vars = {**base_vars, **network_vars, **enc}
-    rendered_config = template.render(render_vars)
-    
-    output_filename = f"{enc['enc_name']}.txt"
-    output_filepath = os.path.join(output_dir, output_filename)
-    
-    file_exists = os.path.exists(output_filepath)
-    with open(output_filepath, 'w', encoding='utf-8') as f:
-        f.write(rendered_config)
-        
-    if file_exists:
-        print(f"  -> Successfully overwritten: {output_filename} [{enc_scope}]")
-    else:
-        print(f"  -> Successfully generated: {output_filename} [{enc_scope}]")
+                current_enclosure[
+                    "oa01_ip"
+                ] = ip
 
-print("\nDone.")
+            elif slot_clean == "02":
+                current_enclosure[
+                    "oa02_name"
+                ] = hostname
+
+                current_enclosure[
+                    "oa02_ip"
+                ] = ip
+
+        elif (
+            eq_type
+            in vars.OA_BLADE_EQUIPMENT_TYPES
+        ):
+            current_enclosure[
+                "name_blade_{}".format(
+                    slot_clean
+                )
+            ] = hostname
+
+            current_enclosure[
+                "ip_blade_{}".format(
+                    slot_clean
+                )
+            ] = ip
+
+        elif (
+            eq_type
+            == vars.OA_ENCLOSURE_SWITCH_TYPE
+        ):
+            current_enclosure[
+                "name_interconnect_{}".format(
+                    slot_clean
+                )
+            ] = hostname
+
+            current_enclosure[
+                "interconnect_{}".format(
+                    slot_clean
+                )
+            ] = ip
+
+    return enclosures_data
+
+
+# ============================================================================
+# TEMPLATE RENDERING
+# ============================================================================
+
+def render_configs(
+    enclosures_data,
+    cert_1_content,
+    cert_2_content,
+):
+    """Render one OA configuration file per enclosure."""
+    if not os.path.isdir(
+        vars.OA_CONFIG_OUTPUT_DIR
+    ):
+        os.makedirs(
+            vars.OA_CONFIG_OUTPUT_DIR
+        )
+
+    environment = Environment(
+        loader=FileSystemLoader(
+            vars.TEMPLATES_DIR
+        )
+    )
+
+    template = environment.get_template(
+        vars.OA_CONFIG_TEMPLATE_FILENAME
+    )
+
+    ldap_contexts = list(
+        vars.LDAP_USER_CONTEXTS
+    )
+
+    while len(
+        ldap_contexts
+    ) < 3:
+        ldap_contexts.append(
+            ""
+        )
+
+    base_vars = {
+        "domain": vars.DOMAIN_NAME,
+        "ilo_admin_group": (
+            vars.OA_ILO_ADMIN_GROUP
+        ),
+        "ldap_search_01": (
+            ldap_contexts[0]
+        ),
+        "ldap_search_02": (
+            ldap_contexts[1]
+        ),
+        "ldap_search_03": (
+            ldap_contexts[2]
+        ),
+        "remote_syslog_server": (
+            vars.OA_REMOTE_SYSLOG_SERVER
+        ),
+        "snmp_community": (
+            vars.OA_SNMP_COMMUNITY
+        ),
+        "snmp_contact": (
+            vars.OA_SNMP_CONTACT
+        ),
+        "snmp_location": (
+            vars.OA_SNMP_LOCATION
+        ),
+        "cert_1": cert_1_content,
+        "cert_2": cert_2_content,
+    }
+
+    print(
+        "\nSetting up Jinja environment targeting: {}"
+        .format(
+            vars.TEMPLATES_DIR
+        )
+    )
+
+    print(
+        "Generating configuration files in: {}"
+        .format(
+            vars.OA_CONFIG_OUTPUT_DIR
+        )
+    )
+
+    generated = 0
+    overwritten = 0
+    skipped = 0
+
+    for enclosure in enclosures_data:
+        if not enclosure[
+            "enc_name"
+        ]:
+            skipped += 1
+            continue
+
+        enc_scope = enclosure.get(
+            "scope",
+            "",
+        )
+
+        network_vars = (
+            get_scope_template_vars(
+                enc_scope
+            )
+        )
+
+        if not network_vars:
+            print(
+                "  -> Skipping generation: {} "
+                "(Unknown or missing scope: '{}')"
+                .format(
+                    enclosure[
+                        "enc_name"
+                    ],
+                    enc_scope,
+                )
+            )
+
+            skipped += 1
+            continue
+
+        render_vars = {}
+
+        render_vars.update(
+            base_vars
+        )
+
+        render_vars.update(
+            network_vars
+        )
+
+        render_vars.update(
+            enclosure
+        )
+
+        rendered_config = (
+            template.render(
+                render_vars
+            )
+        )
+
+        output_filename = (
+            "{}.txt".format(
+                enclosure[
+                    "enc_name"
+                ]
+            )
+        )
+
+        output_filepath = os.path.join(
+            vars.OA_CONFIG_OUTPUT_DIR,
+            output_filename,
+        )
+
+        file_exists = os.path.exists(
+            output_filepath
+        )
+
+        with open(
+            output_filepath,
+            "w",
+            encoding="utf-8",
+        ) as handle:
+            handle.write(
+                rendered_config
+            )
+
+        if file_exists:
+            overwritten += 1
+
+            print(
+                "  -> Successfully overwritten: {} [{}]"
+                .format(
+                    output_filename,
+                    enc_scope,
+                )
+            )
+
+        else:
+            generated += 1
+
+            print(
+                "  -> Successfully generated: {} [{}]"
+                .format(
+                    output_filename,
+                    enc_scope,
+                )
+            )
+
+    return (
+        generated,
+        overwritten,
+        skipped,
+    )
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main():
+    print(
+        "=" * 100
+    )
+    print(
+        "OA CONFIG GENERATOR"
+    )
+    print(
+        "=" * 100
+    )
+    print(
+        "Resource list       : {}"
+        .format(
+            vars.RESOURCE_LIST
+        )
+    )
+    print(
+        "Sheet               : {}"
+        .format(
+            vars.SHEET_NAME
+        )
+    )
+    print(
+        "Excel rows          : Complete worksheet"
+    )
+    print(
+        "Template            : {}"
+        .format(
+            vars.OA_CONFIG_TEMPLATE_FILENAME
+        )
+    )
+    print(
+        "Output directory    : {}"
+        .format(
+            vars.OA_CONFIG_OUTPUT_DIR
+        )
+    )
+    print(
+        "=" * 100
+    )
+
+    if not os.path.isfile(
+        vars.RESOURCE_LIST
+    ):
+        print(
+            "ERROR: Resource List not found: {}"
+            .format(
+                vars.RESOURCE_LIST
+            )
+        )
+
+        return 1
+
+    template_path = os.path.join(
+        vars.TEMPLATES_DIR,
+        vars.OA_CONFIG_TEMPLATE_FILENAME,
+    )
+
+    if not os.path.isfile(
+        template_path
+    ):
+        print(
+            "ERROR: OA Jinja template not found: {}"
+            .format(
+                template_path
+            )
+        )
+
+        return 1
+
+    cert_1_content = load_certificate(
+        vars.OA_APP_CERT_FILE
+    )
+
+    cert_2_content = load_certificate(
+        vars.OA_NWS_CERT_FILE
+    )
+
+    try:
+        records = load_complete_excel(
+            vars.RESOURCE_LIST,
+            vars.SHEET_NAME,
+        )
+
+    except Exception as exc:
+        print(
+            "ERROR loading Excel workbook: {}"
+            .format(
+                exc
+            )
+        )
+
+        return 1
+
+    if not records:
+        print(
+            "No populated rows found in the configured worksheet."
+        )
+
+        return 0
+
+    missing_columns = validate_columns(
+        records
+    )
+
+    if missing_columns:
+        print(
+            "\n[!] CRITICAL: Required Excel columns are missing: {}"
+            .format(
+                ", ".join(
+                    missing_columns
+                )
+            )
+        )
+
+        return 1
+
+    enclosures_data = build_enclosure_data(
+        records
+    )
+
+    if not enclosures_data:
+        print(
+            "No Server Enclosure rows were found in the configured Excel range."
+        )
+
+        return 0
+
+    (
+        generated,
+        overwritten,
+        skipped,
+    ) = render_configs(
+        enclosures_data,
+        cert_1_content,
+        cert_2_content,
+    )
+
+    print(
+        "\nDone. Generated: {} | Overwritten: {} | Skipped: {}"
+        .format(
+            generated,
+            overwritten,
+            skipped,
+        )
+    )
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(
+        main()
+    )

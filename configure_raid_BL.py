@@ -10,28 +10,42 @@ import concurrent.futures
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from functions import vars
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- 1. Configuration Variables ---
-EXCEL_DIR = "Templates"
-EXCEL_FILE = "Resource List-v7.6.xlsx"
-SHEET_NAME = "General Resource List"
-EXCEL_EMPTY_ROW_STOP = 25  # Stop reading Excel after 25 consecutive empty rows
+# --- 1. Centralized Configuration ---
+# Reusable settings are maintained in functions/vars.py. Local names below are
+# aliases only; configuration values are not duplicated in this script.
 
-# NEW: Directory name for saving execution logs/reports
-LOG_DIR_NAME = "logs"
+EXCEL_PATH = vars.RESOURCE_LIST
+SHEET_NAME = vars.SHEET_NAME
+START_ROW = vars.START_ROW
+END_ROW = vars.END_ROW
+EXCEL_EMPTY_ROW_STOP = vars.RAID_EXCEL_EMPTY_ROW_STOP
+LOG_DIR = vars.LOG_DIR
 
-USERNAME = "thlocaladmin"
-PASSWORD = "Th@les018664"
-ISO_URL = "https://infidsrep001sp.mak.iss:8443/BL460c-Gen9-P244br-RAID1-UEFI.iso"
+USERNAME = vars.ILO_BL_USERNAME
+PASSWORD = vars.ILO_BL_PASSWORD
+ISO_URL = vars.RAID_BL_ISO_URL
 
-VALID_EQUIPMENT_TYPES = ["NVR Blade Server", "VCA Blade Server"]
-REQUIRED_COLUMNS = ["enclosure_slot", "ilo_ip"]
+VALID_EQUIPMENT_TYPES = list(vars.RAID_BL_EQUIPMENT_TYPES)
+REQUIRED_COLUMNS = list(vars.RAID_BL_REQUIRED_COLUMNS)
 
-# Timeouts & Limits
-CONTROLLER_TIMEOUT_MINUTES = 10   # Time to wait for server to POST and reveal controller
-RAID_TIMEOUT_MINUTES = 30        # Time to wait for SSACLI to build the array
-MAX_WORKERS = 16                 # Prevent network flooding (cap to standard enclosure size)
+CONTROLLER_TIMEOUT_MINUTES = vars.RAID_CONTROLLER_TIMEOUT_MINUTES
+RAID_TIMEOUT_MINUTES = vars.RAID_TIMEOUT_MINUTES
+POLL_INTERVAL_SECONDS = vars.RAID_POLL_INTERVAL_SECONDS
+MAX_WORKERS = vars.RAID_MAX_WORKERS
+
+REQUEST_TIMEOUT_SECONDS = vars.RAID_BL_REQUEST_TIMEOUT_SECONDS
+AUTH_RETRIES = vars.RAID_AUTH_RETRIES
+AUTH_RETRY_DELAY_SECONDS = vars.RAID_AUTH_RETRY_DELAY_SECONDS
+HTTP_RETRY_TOTAL = vars.RAID_HTTP_RETRY_TOTAL
+HTTP_RETRY_BACKOFF_FACTOR = vars.RAID_HTTP_RETRY_BACKOFF_FACTOR
+HTTP_RETRY_STATUS_CODES = vars.RAID_HTTP_RETRY_STATUS_CODES
+
+REPORT_PREFIX = vars.RAID_BL_REPORT_PREFIX
+
 
 # --- Helper: Thread-Safe Logger ---
 def log(slot, ip, message):
@@ -39,38 +53,97 @@ def log(slot, ip, message):
     print(f"[Slot {slot_str} | {ip}] {message}")
 
 # --- Helper: Fast Excel Loader ---
-def load_resource_excel_fast(filepath, sheet_name, empty_row_stop=25):
+def load_resource_excel_fast(
+    filepath,
+    sheet_name,
+    start_row,
+    end_row,
+    empty_row_stop=25,
+):
     """
-    Reads an Excel file efficiently using openpyxl's read_only generator.
-    Aborts reading immediately upon hitting the empty_row_stop threshold.
+    Read only the configured global Excel row range using openpyxl read-only
+    streaming mode. START_ROW / END_ROW are actual Excel row numbers.
     """
-    wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-    if sheet_name not in wb.sheetnames:
-        wb.close()
-        raise ValueError(f"Sheet '{sheet_name}' not found in the workbook.")
-    
-    ws = wb[sheet_name]
-    data = []
-    headers = []
-    empty_count = 0
-    
-    for i, row in enumerate(ws.iter_rows(values_only=True)):
-        if i == 0:
-            # Extract headers (handle missing column names gracefully)
-            headers = [str(c).strip() if c else f"Unnamed_{j}" for j, c in enumerate(row)]
-            continue
-            
-        # Check if the row is completely empty
-        if all(cell is None or str(cell).strip() == "" for cell in row):
-            empty_count += 1
-            if empty_count >= empty_row_stop:
-                break
-        else:
+    start_row = int(start_row)
+    end_row = int(end_row) if end_row is not None else None
+
+    if start_row < 2:
+        raise ValueError("START_ROW must be >= 2.")
+
+    if end_row is not None and end_row < start_row:
+        raise ValueError("END_ROW must be >= START_ROW.")
+
+    wb = openpyxl.load_workbook(
+        filepath,
+        read_only=True,
+        data_only=True,
+    )
+
+    try:
+        if sheet_name not in wb.sheetnames:
+            raise ValueError(
+                f"Sheet '{sheet_name}' not found in the workbook."
+            )
+
+        ws = wb[sheet_name]
+
+        header_values = next(
+            ws.iter_rows(
+                min_row=1,
+                max_row=1,
+                values_only=True,
+            ),
+            None,
+        )
+
+        if not header_values:
+            return pd.DataFrame()
+
+        headers = [
+            (
+                str(cell).strip()
+                if cell is not None and str(cell).strip() != ""
+                else f"Unnamed_{index}"
+            )
+            for index, cell in enumerate(header_values)
+        ]
+
+        data = []
+        empty_count = 0
+
+        for row in ws.iter_rows(
+            min_row=start_row,
+            max_row=end_row,
+            values_only=True,
+        ):
+            normalized = tuple(row[:len(headers)])
+
+            if len(normalized) < len(headers):
+                normalized += (None,) * (
+                    len(headers) - len(normalized)
+                )
+
+            if all(
+                cell is None or str(cell).strip() == ""
+                for cell in normalized
+            ):
+                empty_count += 1
+
+                if empty_count >= empty_row_stop:
+                    break
+
+                continue
+
             empty_count = 0
-            data.append(row)
-            
-    wb.close()
-    return pd.DataFrame(data, columns=headers)
+            data.append(normalized)
+
+        return pd.DataFrame(
+            data,
+            columns=headers,
+        )
+
+    finally:
+        wb.close()
 
 # --- Server Processing Class ---
 class ServerProcessor:
@@ -86,17 +159,21 @@ class ServerProcessor:
         self.session.headers.update({"Content-Type": "application/json"})
         
         # Native Retry Adapter for HTTP 5xx errors and connection drops
-        retries = Retry(total=3, backoff_factor=2, status_forcelist=[500, 502, 503, 504])
+        retries = Retry(
+            total=HTTP_RETRY_TOTAL,
+            backoff_factor=HTTP_RETRY_BACKOFF_FACTOR,
+            status_forcelist=list(HTTP_RETRY_STATUS_CODES),
+        )
         adapter = HTTPAdapter(max_retries=retries)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
 
     def _request(self, method, url, **kwargs):
         """Wrapper to enforce default timeouts and catch hangs."""
-        kwargs.setdefault('timeout', 15)
+        kwargs.setdefault('timeout', REQUEST_TIMEOUT_SECONDS)
         return self.session.request(method, url, **kwargs)
 
-    def authenticate(self, retries=3):
+    def authenticate(self, retries=AUTH_RETRIES):
         for attempt in range(retries):
             try:
                 auth_url = f"{self.base_url}/redfish/v1/SessionService/Sessions"
@@ -107,8 +184,8 @@ class ServerProcessor:
             except Exception as e:
                 if attempt == retries - 1:
                     raise Exception(f"Auth failed after {retries} attempts: {e}")
-                log(self.slot, self.ip, f"Auth busy or failed. Retrying in 10s... (Attempt {attempt+2}/{retries})")
-                time.sleep(10)
+                log(self.slot, self.ip, f"Auth busy or failed. Retrying in {AUTH_RETRY_DELAY_SECONDS}s... (Attempt {attempt+2}/{retries})")
+                time.sleep(AUTH_RETRY_DELAY_SECONDS)
 
     def get_system_info(self):
         resp = self._request("GET", f"{self.base_url}/redfish/v1/Systems/1/")
@@ -193,9 +270,9 @@ class ServerProcessor:
         self._request("POST", f"{self.base_url}/redfish/v1/Systems/1/Actions/ComputerSystem.Reset", json={"ResetType": reset_type})
 
     def poll_for_new_raid(self, baseline_ids, timeout_minutes):
-        max_attempts = timeout_minutes * 2 
+        max_attempts = max(1, int((timeout_minutes * 60) / POLL_INTERVAL_SECONDS)) 
         for i in range(max_attempts):
-            time.sleep(30)
+            time.sleep(POLL_INTERVAL_SECONDS)
             try:
                 ctrl_uri, current_ld = self.get_storage_inventory()
                 if not ctrl_uri: continue
@@ -231,9 +308,9 @@ def process_blade(server_data, overwrite_raid, ctrl_timeout, raid_timeout):
             server.set_boot_to_bios()
             server.reboot_server(power_state)
             
-            max_attempts = ctrl_timeout * 2
+            max_attempts = max(1, int((ctrl_timeout * 60) / POLL_INTERVAL_SECONDS))
             for i in range(max_attempts):
-                time.sleep(30)
+                time.sleep(POLL_INTERVAL_SECONDS)
                 ctrl_uri, baseline_ld = server.get_storage_inventory()
                 if ctrl_uri:
                     log(slot, ip, "Storage controller detected successfully.")
@@ -270,7 +347,7 @@ def process_blade(server_data, overwrite_raid, ctrl_timeout, raid_timeout):
         
         if success:
             server.reboot_server("On")
-            return {"slot": slot, "ip": ip, "status": "Successful", "reason": "RAID 1 Created Successfully"}
+            return {"slot": slot, "ip": ip, "status": "Successful", "reason": f"{vars.RAID_DISPLAY_NAME} Created Successfully"}
         else:
             return {"slot": slot, "ip": ip, "status": "Failed", "reason": "Timeout waiting for array rebuild"}
             
@@ -286,9 +363,7 @@ def process_blade(server_data, overwrite_raid, ctrl_timeout, raid_timeout):
 
 # --- 3. Main Orchestration Logic ---
 def main():
-    # Resolve exact path relative to where this script is executed
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    excel_path = os.path.join(base_dir, EXCEL_DIR, EXCEL_FILE)
+    excel_path = EXCEL_PATH
     
     if not os.path.exists(excel_path):
         print(f"ERROR: Could not find Excel file at {excel_path}")
@@ -296,8 +371,23 @@ def main():
         
     try:
         print(f"Loading data from {excel_path} (Sheet: '{SHEET_NAME}')...")
-        print(f"Optimized load enabled: Script will stop searching after {EXCEL_EMPTY_ROW_STOP} empty rows.")
-        df = load_resource_excel_fast(excel_path, SHEET_NAME, EXCEL_EMPTY_ROW_STOP)
+        end_text = END_ROW if END_ROW is not None else "end of data"
+        print(
+            f"Excel row range: {START_ROW} through "
+            f"{end_text} (inclusive)"
+        )
+        print(
+            "Optimized load enabled: within the selected range, "
+            f"reading stops after {EXCEL_EMPTY_ROW_STOP} "
+            "consecutive empty rows."
+        )
+        df = load_resource_excel_fast(
+            excel_path,
+            SHEET_NAME,
+            START_ROW,
+            END_ROW,
+            EXCEL_EMPTY_ROW_STOP,
+        )
     except Exception as e:
         print(f"Failed to read Excel file: {e}")
         sys.exit(1)
@@ -397,11 +487,17 @@ def main():
     # --- Write execution report to CSV for auditing ---
     if final_report:
         # Create log directory relative to the script's location
-        log_dir = os.path.join(base_dir, LOG_DIR_NAME)
+        log_dir = LOG_DIR
         os.makedirs(log_dir, exist_ok=True)
         
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        report_filename = f"RAID_Report_{target_enclosure.replace('/', '_')}_{timestamp}.csv"
+        report_filename = (
+            f"{REPORT_PREFIX}_"
+            f"{target_enclosure.replace('/', '_')}_"
+            f"rows_{START_ROW}-"
+            f"{END_ROW if END_ROW is not None else 'end'}_"
+            f"{timestamp}.csv"
+        )
         report_path = os.path.join(log_dir, report_filename)
         
         report_df = pd.DataFrame(final_report)

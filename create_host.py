@@ -1,17 +1,40 @@
-import requests
-import os
-import pandas as pd
-from requests.auth import HTTPBasicAuth
-from functions import general
+import sys
+import traceback
 
-# Foreman API configuration
+from functions import vars
+from functions.output_log import capture_console_output
 
-# Get the absolute path of the directory containing the script
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Build the path to the Templates folder relative to the script
-RESOURCE_LIST = os.path.join(SCRIPT_DIR, 'Templates', 'Resource List-v7.6.xlsx')
-SHEET_NAME = "General Resource List"
+def main():
+    with capture_console_output() as log_path:
+        try:
+            from functions.orchestrator import provision_from_excel
 
-general.provision_from_excel(RESOURCE_LIST, SHEET_NAME, 1026, 1056)
+            print("Python executable : {}".format(sys.executable))
+            print("Project directory : {}".format(vars.PROJECT_DIR))
+            print("Templates directory: {}".format(vars.TEMPLATES_DIR))
+            print("Resource list     : {}".format(vars.RESOURCE_LIST))
+            print("Sheet             : {}".format(vars.SHEET_NAME))
+            print("Rows              : {} through {}".format(
+                vars.START_ROW,
+                vars.END_ROW,
+            ))
+            print("Parallel workers  : {}".format(vars.MAX_WORKERS))
+            print("Foreman creates   : {}".format(
+                vars.FOREMAN_CREATE_CONCURRENCY
+            ))
+            print("Log file          : {}".format(log_path))
+            print()
 
+            provision_from_excel()
+            return 0
+
+        except Exception:
+            print("\nFATAL ERROR")
+            print("=" * 100)
+            traceback.print_exc()
+            return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

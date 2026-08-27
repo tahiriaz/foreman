@@ -1,4 +1,0 @@
-hostname,RecordType,Target
-tvsnvrvip017st.mak.iss,A,10.101.27.25
-clnvrs017.mak.iss,CNAME,tvsnvrvip017st.mak.iss
-tvsnvrvip017st.fe.mak.iss,CNAME,tvsnvrvip017st.mak.iss

@@ -36,6 +36,8 @@ import urllib3
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+from functions import vars
 import pandas as pd
 from openpyxl import load_workbook
 
@@ -81,80 +83,80 @@ class TaskStatus(Enum):
     SKIP = "SKIP"
 
 # ============================================================================
-# CREDENTIALS & GLOBAL SETTINGS
+# CENTRALIZED CONFIGURATION
 # ============================================================================
 
-OA_USERNAME = "Administrator"
-OA_PASSWORD = "Siljeddah15"
+# Credentials, Excel settings, scope settings, concurrency, licensing, paths,
+# RIBCL/Redfish timing and other reusable settings are maintained in
+# functions/vars.py.
 
-ILO_LOGIN = "thlocaladmin"
-ILO_PASSWORD = "Th@les018664"
-ILO_ADVANCED_LICENSE_KEY = "35SCR-RYLML-CBK7N-TD3B9-GGBW2"
+OA_USERNAME = vars.OA_USERNAME
+OA_PASSWORD = vars.OA_PASSWORD
 
-FENCE_USER_NAME = "Pacemaker Fence"
-FENCE_USER_LOGIN = "hpilofence"
-FENCE_USER_PASSWORD = "Th@les01"
+ILO_LOGIN = vars.ILO_BL_USERNAME
+ILO_PASSWORD = vars.ILO_BL_PASSWORD
+ILO_ADVANCED_LICENSE_KEY = vars.ILO_ADVANCED_LICENSE_KEY
 
-RIBCL_CONCURRENT_SESSIONS = 4
-REDFISH_CONCURRENT_SESSIONS = 16
+FENCE_USER_NAME = vars.FENCE_USER_NAME
+FENCE_USER_LOGIN = vars.FENCE_USER_LOGIN
+FENCE_USER_PASSWORD = vars.FENCE_USER_PASSWORD
 
-IPMI_PORT = 623
-ILO_DOMAIN = "mak.iss"
-ILO_TIMEZONE_SEARCH = "Riyadh"
+RIBCL_CONCURRENT_SESSIONS = vars.ILO_BL_RIBCL_CONCURRENT_SESSIONS
+REDFISH_CONCURRENT_SESSIONS = vars.ILO_BL_REDFISH_CONCURRENT_SESSIONS
 
-LDAP_PORT = 636
-LDAP_GROUP_NAME = "CN=ILOAdmins,OU=Roles,OU=IT,OU=ISS,DC=mak,DC=iss"
-LDAP_GROUP_SID = ""
-LDAP_GROUP_PRIVILEGES = "1,2,3,4,5,6"
-LDAP_USER_CONTEXTS = [
-    "OU=IT,OU=ISS,DC=mak,DC=iss",
-    "CN=Users,DC=mak,DC=iss",
-    "CN=Builtin,DC=mak,DC=iss",
-    "@mak.iss",
-]
+IPMI_PORT = vars.ILO_IPMI_PORT
+ILO_DOMAIN = vars.ILO_DOMAIN
+ILO_TIMEZONE_SEARCH = vars.ILO_TIMEZONE_SEARCH
 
-SCOPE_SETTINGS = {
-    "SIL": {"PRIMARY_DNS": "10.130.2.11", "SECONDARY_DNS": "10.130.2.12", "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss", "NTP_PRIMARY": "10.101.18.1", "NTP_SECONDARY": "10.130.2.11"},
-    "MTR": {"PRIMARY_DNS": "10.130.2.11", "SECONDARY_DNS": "10.130.2.12", "DIRECTORY_SERVER": "INFCOSADU001MP.mak.iss", "NTP_PRIMARY": "10.101.18.1", "NTP_SECONDARY": "10.130.2.11"},
-    "RTR": {"PRIMARY_DNS": "10.130.4.11", "SECONDARY_DNS": "10.130.4.12", "DIRECTORY_SERVER": "INFCOSADU002MP.mak.iss", "NTP_PRIMARY": "10.102.18.1", "NTP_SECONDARY": "10.130.4.11"},
-}
+LDAP_PORT = vars.LDAP_PORT
+LDAP_GROUP_NAME = vars.LDAP_GROUP_NAME
+LDAP_GROUP_SID = vars.LDAP_GROUP_SID
+LDAP_GROUP_PRIVILEGES = vars.LDAP_GROUP_PRIVILEGES
+LDAP_USER_CONTEXTS = list(vars.LDAP_USER_CONTEXTS)
 
-BASE_DIR = Path(__file__).resolve().parent
-LOGS_DIR = BASE_DIR / "logs"
+SCOPE_SETTINGS = vars.ILO_SCOPE_SETTINGS
+
+BASE_DIR = Path(vars.PROJECT_DIR)
+LOGS_DIR = Path(vars.LOG_DIR)
 timestamp = time.strftime("%Y%m%d-%H%M%S")
-report_filename = f"ILO_BL_Report_{timestamp}.csv"
+report_filename = "{}_{}.csv".format(
+    vars.ILO_BL_REPORT_PREFIX,
+    timestamp,
+)
 CSV_REPORT_PATH = LOGS_DIR / report_filename
 
-TEMPLATE_DIR = BASE_DIR / "Templates"
-EXCEL_FILE = "Resource List-v7.6.xlsx"
-SHEET_NAME = "General Resource List"
-CERT_FILE = TEMPLATE_DIR / "iss_root_ca.crt"
+TEMPLATE_DIR = Path(vars.TEMPLATES_DIR)
+EXCEL_FILE = vars.EXCEL_FILENAME
+SHEET_NAME = vars.SHEET_NAME
+START_ROW = vars.START_ROW
+END_ROW = vars.END_ROW
+CERT_FILE = Path(vars.ILO_LDAP_CERT_FILE)
 
-VALID_EQUIPMENT_TYPES = ["NVR Blade Server", "VCA Blade Server"]
-EXCEL_COLUMNS = {"enclosure_physical_name", "equipment_type", "enclosure_slot", "ilo_ip", "scope", "hostname", "ilo_hostname"}
-REQUIRED_COLUMNS = ["enclosure_slot", "ilo_ip", "scope", "hostname", "ilo_hostname"]
-EXCEL_EMPTY_ROW_STOP = 25
+VALID_EQUIPMENT_TYPES = list(vars.ILO_BL_VALID_EQUIPMENT_TYPES)
+EXCEL_COLUMNS = set(vars.ILO_BL_EXCEL_COLUMNS)
+REQUIRED_COLUMNS = list(vars.ILO_BL_REQUIRED_COLUMNS)
+EXCEL_EMPTY_ROW_STOP = vars.ILO_BL_EXCEL_EMPTY_ROW_STOP
 
-DEBUG = False
-DEBUG_ON_FAILURE = True
+DEBUG = vars.ILO_BL_DEBUG
+DEBUG_ON_FAILURE = vars.ILO_BL_DEBUG_ON_FAILURE
 
-SSH_PORT = 22
-SSH_CONNECT_TIMEOUT = 15
-SSH_KEEPALIVE_INTERVAL = 5
-COMMAND_TIMEOUT = 120
-COMMAND_QUIET_TIME = 20.0
-HPONCFG_LINE_DELAY = 0.02
+SSH_PORT = vars.ILO_BL_SSH_PORT
+SSH_CONNECT_TIMEOUT = vars.ILO_BL_SSH_CONNECT_TIMEOUT
+SSH_KEEPALIVE_INTERVAL = vars.ILO_BL_SSH_KEEPALIVE_INTERVAL
+COMMAND_TIMEOUT = vars.ILO_BL_COMMAND_TIMEOUT
+COMMAND_QUIET_TIME = vars.ILO_BL_COMMAND_QUIET_TIME
+HPONCFG_LINE_DELAY = vars.ILO_BL_HPONCFG_LINE_DELAY
 
-AUTH_RETRIES = 5
-AUTH_RETRY_DELAY = 5
-LOGIN_PENALTY_WAIT = 32
-REDFISH_TIMEOUT = 25
-HTTP_SAFE_RETRIES = 2
+AUTH_RETRIES = vars.ILO_BL_AUTH_RETRIES
+AUTH_RETRY_DELAY = vars.ILO_BL_AUTH_RETRY_DELAY
+LOGIN_PENALTY_WAIT = vars.ILO_BL_LOGIN_PENALTY_WAIT
+REDFISH_TIMEOUT = vars.ILO_BL_REDFISH_TIMEOUT
+HTTP_SAFE_RETRIES = vars.ILO_BL_HTTP_SAFE_RETRIES
 
-POST_ERROR_STRING = "UnableToModifyDuringSystemPOST"
-POWER_OFF_POLL_INTERVAL = 5
-POWER_OFF_TIMEOUT = 90
-ILO_SETTLE_AFTER_POWEROFF = 5
+POST_ERROR_STRING = vars.ILO_BL_POST_ERROR_STRING
+POWER_OFF_POLL_INTERVAL = vars.ILO_BL_POWER_OFF_POLL_INTERVAL
+POWER_OFF_TIMEOUT = vars.ILO_BL_POWER_OFF_TIMEOUT
+ILO_SETTLE_AFTER_POWEROFF = vars.ILO_BL_SETTLE_AFTER_POWEROFF
 
 
 # ============================================================================
@@ -282,7 +284,7 @@ def values_equal_case_insensitive(left: Any, right: Any) -> bool:
 # EXCEL LOADER
 # ============================================================================
 
-def load_resource_excel_fast(excel_path: Path, sheet_name: str, empty_row_stop: int = 100) -> Tuple[pd.DataFrame, float]:
+def load_resource_excel_fast(excel_path: Path, sheet_name: str, start_row: int, end_row: int, empty_row_stop: int = 100) -> Tuple[pd.DataFrame, float]:
     start = time.monotonic()
     wb = load_workbook(filename=str(excel_path), read_only=True, data_only=True)
     
@@ -296,7 +298,7 @@ def load_resource_excel_fast(excel_path: Path, sheet_name: str, empty_row_stop: 
         data_started = False
         wanted = {c.lower() for c in EXCEL_COLUMNS}
 
-        for row in ws.iter_rows(values_only=True):
+        for row_number, row in enumerate(ws.iter_rows(values_only=True), start=1):
             if header_map is None:
                 normalized = [str(val).strip().lower() if val is not None else "" for val in row]
                 if "enclosure_physical_name" in normalized and "equipment_type" in normalized and "ilo_ip" in normalized:
@@ -304,6 +306,11 @@ def load_resource_excel_fast(excel_path: Path, sheet_name: str, empty_row_stop: 
                     missing = wanted - set(header_map)
                     if missing: raise RuntimeError("Missing Excel columns: " + ", ".join(sorted(missing)))
                 continue
+
+            if row_number < start_row:
+                continue
+            if row_number > end_row:
+                break
 
             record = {}
             has_value = False
@@ -1342,7 +1349,7 @@ def process_redfish(srv: Dict[str, Any], global_results: Dict[str, Dict[str, Any
             ilo.configure_license(ILO_ADVANCED_LICENSE_KEY)
             ilo.configure_fence_user(FENCE_USER_NAME, FENCE_USER_LOGIN, FENCE_USER_PASSWORD)
             ilo.configure_network(srv["ilo_hostname"], scope_data["PRIMARY_DNS"], scope_data["SECONDARY_DNS"])
-            ilo.configure_sntp(scope_data.get("NTP_PRIMARY", ""), scope_data.get("NTP_SECONDARY", ""), ILO_TIMEZONE_SEARCH)
+            ilo.configure_sntp(scope_data.get("PRIMARY_NTP", ""), scope_data.get("SECONDARY_NTP", ""), ILO_TIMEZONE_SEARCH)
             ilo.configure_ipmi(IPMI_PORT)
             ilo.configure_boot()
 
@@ -1413,9 +1420,9 @@ def main():
         logger.error("ERROR: LDAP certificate is not valid PEM text.")
         sys.exit(1)
 
-    logger.info(f"Loading {excel_path.name} (sheet '{SHEET_NAME}')...")
+    logger.info(f"Loading {excel_path.name} (sheet '{SHEET_NAME}', rows {START_ROW}-{END_ROW})...")
     try:
-        df, excel_elapsed = load_resource_excel_fast(excel_path, SHEET_NAME, empty_row_stop=EXCEL_EMPTY_ROW_STOP)
+        df, excel_elapsed = load_resource_excel_fast(excel_path, SHEET_NAME, START_ROW, END_ROW, empty_row_stop=EXCEL_EMPTY_ROW_STOP)
     except Exception as exc:
         logger.error(f"ERROR reading Excel workbook: {exc}")
         sys.exit(1)

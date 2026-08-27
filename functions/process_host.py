@@ -1,255 +1,775 @@
-import requests
-import json
-from requests.auth import HTTPBasicAuth
-from functions import vars
+# BUILD_MARKER: FOREMAN_SERIAL_CREATE_V1_20260827
 
-# Fix Import Loop: Point to the new merged file but alias it as generic
-from functions import general as generic
+from functions import dns, foreman, vars
+from functions.shared import is_valid
 
-HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 
-domain_id = generic.get_resource_id(vars.FOREMAN_URL,"api/domains",vars.USER,vars.PASSWORD,vars.DOMAIN_NAME)
-subnet_id = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,vars.SUBNET_BE)
+NETWORKS = (
+    ("fe", False),
+    ("me", True),
+    ("be", False),
+    ("cl", False),
+)
+
 
 def create(host):
-    payload = create_payload(host)
-    try:
-        response = requests.post(
-            f"{vars.FOREMAN_URL}/api/hosts", 
-            data=json.dumps(payload), 
-            auth=(vars.USER,vars.PASSWORD), 
-            headers=HEADERS, 
-            verify=True
+    """Create/reuse a physical Foreman host and then process DNS."""
+    hostname = str(
+        host.get(
+            "hostname",
+            "UNKNOWN",
         )
-        if response.status_code == 201:
-            print(f"Successfully created {host['hostname']}")
-            # Temporary disabled creating DNS records for physical hosts
-            generic.create_dns_records(host)
-        else:
-            print(f"Failed to create {host['hostname']}: {response.text}")
+    ).strip()
 
-    except Exception as e:
-        print(f"Error processing row for {host['hostname']}: {e}")
+    logical_name = host.get(
+        "logical_name"
+    )
+
+    result = {
+        "success": False,
+        "status": "Failed",
+        "details": "",
+        "hostname": hostname,
+        "foreman_success": False,
+        "foreman_status": "Failed",
+        "foreman_message": "",
+        "dns_success": False,
+        "dns_status": "Not Run",
+        "dns_message": "",
+        "message": "",
+    }
+
+    try:
+        # Fast existence check. Existing hosts do not need the creation lock.
+        existing = foreman.get_host(
+            hostname,
+            logical_name,
+        )
+
+        if existing:
+            _set_existing_host(
+                result,
+                hostname,
+                existing,
+            )
+
+        else:
+            # Payload construction/resource lookups can run concurrently.
+            payload = create_payload(
+                host
+            )
+
+            # Only the dangerous Foreman host creation transaction is serialized.
+            with foreman.host_creation_slot(
+                hostname
+            ):
+                # IMPORTANT:
+                # Re-check after acquiring the slot in case another thread/run
+                # created this object while this worker was waiting.
+                existing = foreman.get_host(
+                    hostname,
+                    logical_name,
+                )
+
+                if existing:
+                    _set_existing_host(
+                        result,
+                        hostname,
+                        existing,
+                    )
+
+                else:
+                    response = foreman.create_host(
+                        payload
+                    )
+
+                    if response.status_code == 201:
+                        try:
+                            created = (
+                                foreman.verify_created_managed_host(
+                                    response=response,
+                                    expected_names=(
+                                        hostname,
+                                        logical_name,
+                                    ),
+                                    expected_organization_id=(
+                                        payload["host"].get(
+                                            "organization_id"
+                                        )
+                                    ),
+                                    expected_location_id=(
+                                        payload["host"].get(
+                                            "location_id"
+                                        )
+                                    ),
+                                )
+                            )
+
+                        except Exception as verify_error:
+                            host_id = (
+                                foreman.get_response_host_id(
+                                    response
+                                )
+                            )
+
+                            message = (
+                                "CRITICAL: Foreman returned HTTP 201 for {}, "
+                                "but POST-CREATE VERIFICATION FAILED. "
+                                "Foreman host ID: {}. Error: {}. "
+                                "DNS will NOT run. Check Foreman before "
+                                "rerunning this host because manual cleanup "
+                                "may be required.".format(
+                                    hostname,
+                                    (
+                                        host_id
+                                        if host_id
+                                        else "Unknown"
+                                    ),
+                                    verify_error,
+                                )
+                            )
+
+                            print(
+                                message
+                            )
+
+                            result.update({
+                                "foreman_success": False,
+                                "foreman_status": "Failed",
+                                "foreman_message": message,
+                                "message": message,
+                                "details": message,
+                            })
+
+                            return result
+
+                        foreman_message = (
+                            foreman.describe_host(
+                                created
+                            )
+                        )
+
+                        result.update({
+                            "foreman_success": True,
+                            "foreman_status": "Successful",
+                            "foreman_message": foreman_message,
+                        })
+
+                        print(
+                            "Successfully created {} in Foreman."
+                            .format(
+                                hostname
+                            )
+                        )
+
+                        print(
+                            "POST-CREATE VERIFICATION PASSED: {}"
+                            .format(
+                                foreman_message
+                            )
+                        )
+
+                    elif foreman.is_duplicate_host_response(
+                        response
+                    ):
+                        existing = foreman.get_host(
+                            hostname,
+                            logical_name,
+                        )
+
+                        if existing:
+                            _set_existing_host(
+                                result,
+                                hostname,
+                                existing,
+                                duplicate_response=True,
+                            )
+
+                        else:
+                            message = (
+                                "Foreman returned duplicate-name HTTP 422 "
+                                "for {}, but an exact managed-host lookup "
+                                "found no matching host. Treating this as "
+                                "FAILED. This can indicate a hidden/orphan "
+                                "Foreman Host::Base record. Response: {}"
+                                .format(
+                                    hostname,
+                                    response.text,
+                                )
+                            )
+
+                            print(
+                                message
+                            )
+
+                            result.update({
+                                "message": message,
+                                "details": message,
+                            })
+
+                            return result
+
+                    else:
+                        message = (
+                            "Failed to create {}. HTTP {}: {}"
+                            .format(
+                                hostname,
+                                response.status_code,
+                                response.text,
+                            )
+                        )
+
+                        print(
+                            message
+                        )
+
+                        result.update({
+                            "message": message,
+                            "details": message,
+                        })
+
+                        return result
+
+        # The Foreman creation slot has been released by this point.
+        # DNS is therefore still allowed to run concurrently.
+        _process_dns(
+            host,
+            result,
+        )
+
+        _finalize_result(
+            result
+        )
+
+        return result
+
+    except Exception as error:
+        message = (
+            "Error processing Foreman host {}: {}"
+            .format(
+                hostname,
+                error,
+            )
+        )
+
+        print(
+            message
+        )
+
+        result.update({
+            "message": message,
+            "details": message,
+        })
+
+        return result
+
+
+def _set_existing_host(
+    result,
+    hostname,
+    existing,
+    duplicate_response=False,
+):
+    """Mark an exact managed host as already existing."""
+    foreman_message = foreman.describe_host(
+        existing
+    )
+
+    result.update({
+        "foreman_success": True,
+        "foreman_status": "Already Exists",
+        "foreman_message": foreman_message,
+    })
+
+    if duplicate_response:
+        print(
+            "Foreman returned duplicate-name HTTP 422 for {}, "
+            "and exact managed-host verification succeeded: {}"
+            .format(
+                hostname,
+                foreman_message,
+            )
+        )
+    else:
+        print(
+            "Foreman host {} already exists: {}"
+            .format(
+                hostname,
+                foreman_message,
+            )
+        )
+
+
+def _process_dns(host, result):
+    """Run DNS processing and update the physical-host result."""
+    hostname = result[
+        "hostname"
+    ]
+
+    try:
+        dns_result = dns.create_dns_records(
+            host
+        )
+
+        dns_success = (
+            dns_result.get(
+                "status"
+            ) == "Successful"
+        )
+
+        dns_message = dns_result.get(
+            "details",
+            "",
+        )
+
+        result.update({
+            "dns_success": dns_success,
+            "dns_status": dns_result.get(
+                "status",
+                "Failed",
+            ),
+            "dns_message": dns_message,
+        })
+
+        if dns_success:
+            suffix = (
+                ": {}".format(
+                    dns_message
+                )
+                if dns_message
+                else ""
+            )
+
+            print(
+                "DNS creation completed for {}{}"
+                .format(
+                    hostname,
+                    suffix,
+                )
+            )
+
+        else:
+            print(
+                "WARNING: Foreman stage completed for {}, but "
+                "DNS failed: {}".format(
+                    hostname,
+                    (
+                        dns_message
+                        or "Unknown DNS error"
+                    ),
+                )
+            )
+
+    except Exception as error:
+        result.update({
+            "dns_success": False,
+            "dns_status": "Failed",
+            "dns_message": str(
+                error
+            ),
+        })
+
+        print(
+            "WARNING: Foreman stage completed for {}, but DNS "
+            "raised an exception: {}".format(
+                hostname,
+                error,
+            )
+        )
+
+
+def _finalize_result(result):
+    """Set final physical-host provisioning status."""
+    foreman_text = result[
+        "foreman_status"
+    ]
+
+    if result[
+        "foreman_message"
+    ]:
+        foreman_text = "{} ({})".format(
+            foreman_text,
+            result[
+                "foreman_message"
+            ],
+        )
+
+    if result[
+        "dns_success"
+    ]:
+        details = (
+            "Foreman: {}; DNS: Successful"
+            .format(
+                foreman_text
+            )
+        )
+
+        result.update({
+            "success": True,
+            "status": "Successful",
+            "message": details,
+            "details": details,
+        })
+
+        return
+
+    dns_detail = (
+        result[
+            "dns_message"
+        ]
+        or "Unknown DNS error"
+    )
+
+    details = (
+        "Foreman: {}; DNS: Failed - {}"
+        .format(
+            foreman_text,
+            dns_detail,
+        )
+    )
+
+    result.update({
+        "success": False,
+        "status": "Partial",
+        "message": details,
+        "details": details,
+    })
+
 
 def create_payload(host):
+    """Build a Foreman payload for a physical server."""
+    hostname = host.get(
+        "hostname",
+        "UNKNOWN",
+    )
+
+    if not is_valid(
+        host.get(
+            "hostname"
+        )
+    ):
+        raise ValueError(
+            "Missing hostname"
+        )
+
+    hostgroup_name = foreman.gethostgroup(
+        host["subsystems"],
+        host["function"],
+        host["variation"],
+    )
+
+    if not is_valid(
+        hostgroup_name
+    ):
+        raise ValueError(
+            "No Foreman hostgroup mapping found for "
+            "{} / {} / {}".format(
+                host["subsystems"],
+                host["function"],
+                host["variation"],
+            )
+        )
+
+    organization_id, location_id = (
+        foreman.get_scope_ids()
+    )
+
     payload = {
         "host": {
-            "name": host["hostname"],
-            "hostgroup_id":generic.get_resource_id(vars.FOREMAN_URL,"api/v2/hostgroups",vars.USER,vars.PASSWORD,generic.gethostgroup(host["subsystems"],host["function"],host["variation"])),
+            "name": host[
+                "hostname"
+            ],
+            "hostgroup_id": (
+                foreman.get_cached_resource_id(
+                    "api/v2/hostgroups",
+                    hostgroup_name,
+                )
+            ),
+            "organization_id": organization_id,
+            "location_id": location_id,
             "build": True,
             "managed": True,
-            "host_parameters_attributes": generic.gethost_parameters(host["foreman_parameters"],host["ntp1"],host["ntp2"]),
-            "interfaces_attributes": []
+            "host_parameters_attributes": (
+                foreman.gethost_parameters(
+                    host[
+                        "foreman_parameters"
+                    ],
+                    host.get(
+                        "ntp1",
+                        vars.EMPTY_VALUE,
+                    ),
+                    host.get(
+                        "ntp2",
+                        vars.EMPTY_VALUE,
+                    ),
+                )
+            ),
+            "interfaces_attributes": [],
         }
     }
-    payload_i = add_interface(payload,host)
-    return payload_i
 
-def add_interface(payload,host):
-    interfaces = []
-    ### Bond 0
-    if host["nic0_name"] != "N.A" and host["nic0_name"] != "NODATAFOUND":
-        if host["nic1_name"] != "N.A" and host["nic1_name"] != "NODATAFOUND":
-            if host["bond0_name"] != "N.A" and host["bond0_name"] != "NODATAFOUND":
-                nic1 = {
-                        "identifier": host["nic0_name"], 
-                        "type": "interface",
-                        "mac": host["nic0_mac"],
-                        "managed": True,
-                        "provision": True,
-                        "subnet_id" : generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["nic0_pxe_subnet_name"]),
-                        "domain_id" : domain_id,
-                        "primary": False
-                    }
-                nic2 = {
-                        "identifier": host["nic1_name"], 
-                        "type": "interface",
-                        "mac": host["nic1_mac"],
-                        "managed": True,
-                        "primary": False
-                    }
-                nic3 = {
-                        "identifier": host["bond0_name"], 
-                        "type": "bond",
-                        "mode": host["bond0_type"],
-                        "attached_devices": host["bond0_devs"],
-                        "managed": True,
-                        "primary": False
-                    }
-                if host["fe_interface_type"] == "bond" and host["fe_attach_to"] == "bond0":
-                    nic3["ip"] = host["fe_ip_address"]
-                    nic3["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["fe_vlan_name"])
-                    nic3["domain_id"] = domain_id
-                if host["me_interface_type"] == "bond" and host["me_attach_to"] == "bond0":
-                    nic3["ip"] = host["me_ip_address"]
-                    nic3["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["me_vlan_name"])
-                    nic3["domain_id"] = domain_id
-                if host["be_interface_type"] == "bond" and host["be_attach_to"] == "bond0":
-                    nic3["ip"] = host["be_ip_address"]
-                    nic3["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["be_vlan_name"])
-                    nic3["domain_id"] = domain_id
-                if host["cl_interface_type"] == "bond" and host["cl_attach_to"] == "bond0":
-                    nic3["ip"] = host["cl_ip_address"]
-                    nic3["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["cl_vlan_name"])
-                    nic3["domain_id"] = domain_id
-                interfaces.append(nic1)
-                interfaces.append(nic2)
-                interfaces.append(nic3)
+    add_interfaces(
+        payload,
+        host,
+    )
 
-    ### Bond 1
-    if host["nic2_name"] != "N.A" and host["nic2_name"] != "NODATAFOUND":
-        if host["nic3_name"] != "N.A" and host["nic3_name"] != "NODATAFOUND":
-            if host["bond1_name"] != "N.A" and host["bond1_name"] != "NODATAFOUND":
-                nic4 = {
-                        "identifier": host["nic2_name"], 
-                        "type": "interface",
-                        "mac": host["nic2_mac"],
-                        "managed": True,
-                        "primary": False
-                    }
-                nic5 = {
-                        "identifier": host["nic3_name"], 
-                        "type": "interface",
-                        "mac": host["nic3_mac"],
-                        "managed": True,
-                        "primary": False
-                    }
-                nic6 = {
-                        "identifier": host["bond1_name"], 
-                        "type": "bond",
-                        "mode": host["bond1_type"],
-                        "attached_devices": host["bond1_devs"],
-                        "managed": True,
-                        "primary": False
-                    }
-                if host["fe_interface_type"] == "bond" and host["fe_attach_to"] == "bond1":
-                    nic6["ip"] = host["fe_ip_address"]
-                    nic6["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["fe_vlan_name"])
-                    nic6["domain_id"] = domain_id
-                if host["me_interface_type"] == "bond" and host["me_attach_to"] == "bond1":
-                    nic6["ip"] = host["me_ip_address"]
-                    nic6["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["me_vlan_name"])
-                    nic6["domain_id"] = domain_id
-                if host["be_interface_type"] == "bond" and host["be_attach_to"] == "bond1":
-                    nic6["ip"] = host["be_ip_address"]
-                    nic6["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["be_vlan_name"])
-                    nic6["domain_id"] = domain_id
-                if host["cl_interface_type"] == "bond" and host["cl_attach_to"] == "bond1":
-                    nic6["ip"] = host["cl_ip_address"]
-                    nic6["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["cl_vlan_name"])
-                    nic6["domain_id"] = domain_id
-                interfaces.append(nic4)
-                interfaces.append(nic5)
-                interfaces.append(nic6)                        
+    if not payload[
+        "host"
+    ][
+        "interfaces_attributes"
+    ]:
+        raise ValueError(
+            "No valid network interfaces were generated "
+            "for host {}".format(
+                hostname
+            )
+        )
 
-    ### Bond 2
-    if host["nic4_name"] != "N.A" and host["nic4_name"] != "NODATAFOUND":
-        if host["nic5_name"] != "N.A" and host["nic5_name"] != "NODATAFOUND":
-            if host["bond2_name"] != "N.A" and host["bond2_name"] != "NODATAFOUND":
-                nic7 = {
-                        "identifier": host["nic4_name"], 
-                        "type": "interface",
-                        "mac": host["nic4_mac"],
-                        "managed": True,
-                        "primary": False
-                    }
-                nic8 = {
-                        "identifier": host["nic5_name"], 
-                        "type": "interface",
-                        "mac": host["nic5_mac"],
-                        "managed": True,
-                        "primary": False
-                    }
-                nic9 = {
-                        "identifier": host["bond2_name"], 
-                        "type": "bond",
-                        "mode": host["bond2_type"],
-                        "attached_devices": host["bond2_devs"],
-                        "managed": True,
-                        "primary": False
-                    }
-                if host["fe_interface_type"] == "bond" and host["fe_attach_to"] == "bond2":
-                    nic9["ip"] = host["fe_ip_address"]
-                    nic9["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["fe_vlan_name"])
-                    nic9["domain_id"] = domain_id
-                if host["me_interface_type"] == "bond" and host["me_attach_to"] == "bond2":
-                    nic9["ip"] = host["me_ip_address"]
-                    nic9["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["me_vlan_name"])
-                    nic9["domain_id"] = domain_id
-                if host["be_interface_type"] == "bond" and host["be_attach_to"] == "bond2":
-                    nic9["ip"] = host["be_ip_address"]
-                    nic9["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["be_vlan_name"])
-                    nic9["domain_id"] = domain_id
-                if host["cl_interface_type"] == "bond" and host["cl_attach_to"] == "bond2":
-                    nic9["ip"] = host["cl_ip_address"]
-                    nic9["subnet_id"] = generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["cl_vlan_name"])
-                    nic9["domain_id"] = domain_id
-                interfaces.append(nic7)
-                interfaces.append(nic8)
-                interfaces.append(nic9)
-    ### FrontEnd
-    if host["fe_ip_address"] != "N.A" and host["fe_ip_address"] != "NODATAFOUND" and host["fe_interface_type"] == "vlan":
-        nic10 ={
-                "identifier": host["fe_interface_name"],
-                "type": "interface",
-                "tag": int(host["fe_vlan_id"]),
-                "attached_to": host["fe_attach_to"],
-                "ip": host["fe_ip_address"],
-                "subnet_id": generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["fe_vlan_name"]),
-                "domain_id": domain_id,
-                "managed": True,
-                "virtual": True,
-                "primary": False
-        }
-        interfaces.append(nic10)
-
-    ### MiddleEnd
-    if host["me_ip_address"] != "N.A" and host["me_ip_address"] != "NODATAFOUND" and host["me_interface_type"] == "vlan":
-        nic11 ={
-                "identifier": host["me_interface_name"],
-                "type": "interface",
-                "tag": int(host["me_vlan_id"]),
-                "attached_to": host["me_attach_to"],
-                "ip": host["me_ip_address"],
-                "subnet_id": generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["me_vlan_name"]),
-                "domain_id": domain_id,
-                "managed": True,
-                "virtual": True,
-                "primary": True
-        }
-        interfaces.append(nic11)        
-
-    ### BackEnd
-    if host["be_ip_address"] != "N.A" and host["be_ip_address"] != "NODATAFOUND" and host["be_interface_type"] == "vlan":
-        nic12 ={
-                "identifier": host["be_interface_name"],
-                "type": "interface",
-                "tag": int(host["be_vlan_id"]),
-                "attached_to": host["be_attach_to"],
-                "ip": host["be_ip_address"],
-                "subnet_id": generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["be_vlan_name"]),
-                "domain_id": domain_id,
-                "managed": True,
-                "virtual": True,
-                "primary": False
-        }
-        interfaces.append(nic12)
-
-    ### Cluster
-    if host["cl_ip_address"] != "N.A" and host["cl_ip_address"] != "NODATAFOUND" and host["cl_interface_type"] == "vlan":
-        nic13 ={
-                "identifier": host["cl_interface_name"],
-                "type": "interface",
-                "tag": int(host["cl_vlan_id"]),
-                "attached_to": host["cl_attach_to"],
-                "ip": host["cl_ip_address"],
-                "subnet_id": generic.get_resource_id(vars.FOREMAN_URL,"api/v2/subnets",vars.USER,vars.PASSWORD,host["cl_vlan_name"]),
-                "domain_id": domain_id,
-                "managed": True,
-                "virtual": True,
-                "primary": False
-        }
-        interfaces.append(nic13)
-
-    payload["host"]["interfaces_attributes"] = interfaces
     return payload
+
+
+def add_interfaces(payload, host):
+    """Add physical, bond and VLAN interfaces."""
+    interfaces = []
+
+    domain_id = (
+        foreman.get_cached_resource_id(
+            "api/domains",
+            vars.DOMAIN_NAME,
+        )
+    )
+
+    for bond_index in range(
+        3
+    ):
+        interfaces.extend(
+            _build_bond(
+                host,
+                bond_index,
+                domain_id,
+            )
+        )
+
+    for prefix, primary in NETWORKS:
+        vlan = _build_vlan(
+            host,
+            prefix,
+            primary,
+            domain_id,
+        )
+
+        if vlan:
+            interfaces.append(
+                vlan
+            )
+
+    payload[
+        "host"
+    ][
+        "interfaces_attributes"
+    ] = interfaces
+
+    return payload
+
+
+def _build_bond(host, bond_index, domain_id):
+    """Build one bond plus its two physical interfaces."""
+    nic_a_index = (
+        bond_index * 2
+    )
+    nic_b_index = (
+        nic_a_index + 1
+    )
+
+    nic_a_name = host.get(
+        "nic{}_name".format(
+            nic_a_index
+        )
+    )
+
+    nic_b_name = host.get(
+        "nic{}_name".format(
+            nic_b_index
+        )
+    )
+
+    bond_name = host.get(
+        "bond{}_name".format(
+            bond_index
+        )
+    )
+
+    if not all((
+        is_valid(
+            nic_a_name
+        ),
+        is_valid(
+            nic_b_name
+        ),
+        is_valid(
+            bond_name
+        ),
+    )):
+        return []
+
+    nic_a = {
+        "identifier": nic_a_name,
+        "type": "interface",
+        "mac": host[
+            "nic{}_mac".format(
+                nic_a_index
+            )
+        ],
+        "managed": True,
+        "primary": False,
+    }
+
+    nic_b = {
+        "identifier": nic_b_name,
+        "type": "interface",
+        "mac": host[
+            "nic{}_mac".format(
+                nic_b_index
+            )
+        ],
+        "managed": True,
+        "primary": False,
+    }
+
+    if bond_index == 0:
+        nic_a.update({
+            "provision": True,
+            "domain_id": domain_id,
+            "subnet_id": (
+                foreman.get_cached_resource_id(
+                    "api/v2/subnets",
+                    host[
+                        "nic0_pxe_subnet_name"
+                    ],
+                )
+            ),
+        })
+
+    bond = {
+        "identifier": bond_name,
+        "type": "bond",
+        "mode": host[
+            "bond{}_type".format(
+                bond_index
+            )
+        ],
+        "attached_devices": host[
+            "bond{}_devs".format(
+                bond_index
+            )
+        ],
+        "managed": True,
+        "primary": False,
+    }
+
+    for prefix, _ in NETWORKS:
+        if (
+            host.get(
+                "{}_interface_type"
+                .format(
+                    prefix
+                )
+            ) == "bond"
+            and host.get(
+                "{}_attach_to".format(
+                    prefix
+                )
+            ) == bond_name
+        ):
+            bond.update({
+                "ip": host[
+                    "{}_ip_address".format(
+                        prefix
+                    )
+                ],
+                "domain_id": domain_id,
+                "subnet_id": (
+                    foreman.get_cached_resource_id(
+                        "api/v2/subnets",
+                        host[
+                            "{}_vlan_name"
+                            .format(
+                                prefix
+                            )
+                        ],
+                    )
+                ),
+            })
+
+    return [
+        nic_a,
+        nic_b,
+        bond,
+    ]
+
+
+def _build_vlan(
+    host,
+    prefix,
+    primary,
+    domain_id,
+):
+    """Build a VLAN interface when VLAN mode is configured."""
+    ip_key = (
+        "{}_ip_address".format(
+            prefix
+        )
+    )
+
+    if (
+        not is_valid(
+            host.get(
+                ip_key
+            )
+        )
+        or host.get(
+            "{}_interface_type"
+            .format(
+                prefix
+            )
+        ) != "vlan"
+    ):
+        return None
+
+    return {
+        "identifier": host[
+            "{}_interface_name".format(
+                prefix
+            )
+        ],
+        "type": "interface",
+        "tag": int(
+            host[
+                "{}_vlan_id".format(
+                    prefix
+                )
+            ]
+        ),
+        "attached_to": host[
+            "{}_attach_to".format(
+                prefix
+            )
+        ],
+        "ip": host[
+            ip_key
+        ],
+        "subnet_id": (
+            foreman.get_cached_resource_id(
+                "api/v2/subnets",
+                host[
+                    "{}_vlan_name".format(
+                        prefix
+                    )
+                ],
+            )
+        ),
+        "domain_id": domain_id,
+        "managed": True,
+        "virtual": True,
+        "primary": primary,
+    }
