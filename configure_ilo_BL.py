@@ -86,14 +86,9 @@ class TaskStatus(Enum):
 # CENTRALIZED CONFIGURATION
 # ============================================================================
 
-<<<<<<< HEAD
 # Credentials, Excel settings, scope settings, concurrency, licensing, paths,
 # RIBCL/Redfish timing and other reusable settings are maintained in
 # functions/vars.py.
-=======
-OA_USERNAME = "Administrator"
-OA_PASSWORD = "Th@les01"
->>>>>>> 9ba50758d29f12847cda86f70d451beb122f8670
 
 OA_USERNAME = vars.OA_USERNAME
 OA_PASSWORD = vars.OA_PASSWORD
