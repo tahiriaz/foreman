@@ -3,7 +3,6 @@ import time
 
 from functions import dns, vars
 from functions.inventory import load_inventory, validate_resource
-from functions.reporting import print_final_report
 
 
 def provision_from_excel(
@@ -95,7 +94,6 @@ def provision_from_excel(
 
     if not jobs:
         print("\nNo valid resources left to process.")
-        print_final_report(results)
         return results
 
     worker_count = min(max_workers, len(jobs))
@@ -205,5 +203,4 @@ def provision_from_excel(
                     "TimeSeconds": 0.0,
                 })
 
-    print_final_report(results)
     return results

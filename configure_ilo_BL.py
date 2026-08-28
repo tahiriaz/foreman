@@ -1,3 +1,4 @@
+# BUILD_MARKER: ILO_BL_FULL_WORKBOOK_V1_20260828
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -38,6 +39,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from functions import vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 import pandas as pd
 from openpyxl import load_workbook
 
@@ -128,14 +135,11 @@ CSV_REPORT_PATH = LOGS_DIR / report_filename
 TEMPLATE_DIR = Path(vars.TEMPLATES_DIR)
 EXCEL_FILE = vars.EXCEL_FILENAME
 SHEET_NAME = vars.SHEET_NAME
-START_ROW = vars.START_ROW
-END_ROW = vars.END_ROW
 CERT_FILE = Path(vars.ILO_LDAP_CERT_FILE)
 
 VALID_EQUIPMENT_TYPES = list(vars.ILO_BL_VALID_EQUIPMENT_TYPES)
 EXCEL_COLUMNS = set(vars.ILO_BL_EXCEL_COLUMNS)
 REQUIRED_COLUMNS = list(vars.ILO_BL_REQUIRED_COLUMNS)
-EXCEL_EMPTY_ROW_STOP = vars.ILO_BL_EXCEL_EMPTY_ROW_STOP
 
 DEBUG = vars.ILO_BL_DEBUG
 DEBUG_ON_FAILURE = vars.ILO_BL_DEBUG_ON_FAILURE
@@ -284,65 +288,129 @@ def values_equal_case_insensitive(left: Any, right: Any) -> bool:
 # EXCEL LOADER
 # ============================================================================
 
-def load_resource_excel_fast(excel_path: Path, sheet_name: str, start_row: int, end_row: int, empty_row_stop: int = 100) -> Tuple[pd.DataFrame, float]:
+def load_resource_excel_fast(excel_path: Path, sheet_name: str) -> Tuple[pd.DataFrame, float]:
+    """
+    Load every populated row from the configured worksheet.
+
+    This blade iLO workflow is enclosure-based, so Server Enclosure, Enclosure
+    OA and blade rows may be located anywhere in the resource list. Unlike the
+    range-based rack-mount workflows, this function intentionally ignores the
+    global START_ROW / END_ROW and does not stop after consecutive empty rows.
+    Completely empty rows are skipped while the scan continues to the end of
+    the worksheet.
+    """
     start = time.monotonic()
-    wb = load_workbook(filename=str(excel_path), read_only=True, data_only=True)
-    
+    wb = load_workbook(
+        filename=str(excel_path),
+        read_only=True,
+        data_only=True,
+    )
+
     try:
         if sheet_name not in wb.sheetnames:
-            raise RuntimeError(f"Worksheet '{sheet_name}' not found")
+            raise RuntimeError(
+                "Worksheet '{}' not found".format(sheet_name)
+            )
+
         ws = wb[sheet_name]
         header_map = None
         records = []
-        empty_count = 0
-        data_started = False
-        wanted = {c.lower() for c in EXCEL_COLUMNS}
+        wanted = {column.lower() for column in EXCEL_COLUMNS}
 
-        for row_number, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        for row_number, row in enumerate(
+            ws.iter_rows(values_only=True),
+            start=1,
+        ):
             if header_map is None:
-                normalized = [str(val).strip().lower() if val is not None else "" for val in row]
-                if "enclosure_physical_name" in normalized and "equipment_type" in normalized and "ilo_ip" in normalized:
-                    header_map = {name: idx for idx, name in enumerate(normalized) if name in wanted}
-                    missing = wanted - set(header_map)
-                    if missing: raise RuntimeError("Missing Excel columns: " + ", ".join(sorted(missing)))
-                continue
+                normalized = [
+                    str(value).strip().lower()
+                    if value is not None
+                    else ""
+                    for value in row
+                ]
 
-            if row_number < start_row:
+                if (
+                    "enclosure_physical_name" in normalized
+                    and "equipment_type" in normalized
+                    and "ilo_ip" in normalized
+                ):
+                    header_map = {
+                        name: index
+                        for index, name in enumerate(normalized)
+                        if name in wanted
+                    }
+
+                    missing = wanted - set(header_map)
+
+                    if missing:
+                        raise RuntimeError(
+                            "Missing Excel columns: {}".format(
+                                ", ".join(sorted(missing))
+                            )
+                        )
+
                 continue
-            if row_number > end_row:
-                break
 
             record = {}
             has_value = False
+
             for column, index in header_map.items():
-                val = row[index] if index < len(row) else None
-                if val is None: val = ""
-                elif isinstance(val, str): val = val.strip()
-                record[column] = val
-                if str(val).strip() != "": has_value = True
+                value = row[index] if index < len(row) else None
+
+                if value is None:
+                    value = ""
+                elif isinstance(value, str):
+                    value = value.strip()
+
+                record[column] = value
+
+                if str(value).strip() != "":
+                    has_value = True
 
             if not has_value:
-                if data_started:
-                    empty_count += 1
-                    if empty_count >= empty_row_stop: break
                 continue
 
-            data_started = True
-            empty_count = 0
+            record["_excel_row"] = row_number
             records.append(record)
+
     finally:
         wb.close()
 
-    if not records: raise RuntimeError("No data rows found in worksheet")
-    df = pd.DataFrame(records)
-    for column in EXCEL_COLUMNS:
-        if column not in df.columns: df[column] = ""
+    if header_map is None:
+        raise RuntimeError(
+            "Could not locate the expected Excel header row"
+        )
 
-    string_columns = ["enclosure_physical_name", "equipment_type", "ilo_ip", "scope", "hostname", "ilo_hostname"]
+    if not records:
+        raise RuntimeError(
+            "No populated data rows found in worksheet"
+        )
+
+    df = pd.DataFrame(records)
+
+    for column in EXCEL_COLUMNS:
+        if column not in df.columns:
+            df[column] = ""
+
+    string_columns = [
+        "enclosure_physical_name",
+        "equipment_type",
+        "ilo_ip",
+        "scope",
+        "hostname",
+        "ilo_hostname",
+    ]
+
     for column in string_columns:
-        df[column] = df[column].fillna("").astype(str).str.strip()
+        df[column] = (
+            df[column]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
 
     df["scope"] = df["scope"].str.upper()
+
     return df, time.monotonic() - start
 
 
@@ -1396,47 +1464,87 @@ def main():
     total_start = time.monotonic()
     timings = {}
 
-    if RIBCL_CONCURRENT_SESSIONS < 1 or REDFISH_CONCURRENT_SESSIONS < 1 or EXCEL_EMPTY_ROW_STOP < 1:
-        logger.error("ERROR: Concurrency and empty row stop settings must be >= 1")
-        sys.exit(1)
+    if RIBCL_CONCURRENT_SESSIONS < 1 or REDFISH_CONCURRENT_SESSIONS < 1:
+        logger.error("ERROR: Concurrency settings must be >= 1")
+        return 1
 
     excel_path = TEMPLATE_DIR / EXCEL_FILE
     if not excel_path.exists():
         logger.error(f"ERROR: Excel file not found: {excel_path}")
-        sys.exit(1)
+        return 1
 
     if not CERT_FILE.exists():
         logger.error(f"ERROR: LDAP certificate not found: {CERT_FILE}")
-        sys.exit(1)
+        return 1
 
     try:
         with open(CERT_FILE, "r", encoding="utf-8") as handle:
             ldap_ca_cert = handle.read().strip()
     except Exception as exc:
         logger.error(f"ERROR reading certificate: {exc}")
-        sys.exit(1)
+        return 1
 
     if "-----BEGIN CERTIFICATE-----" not in ldap_ca_cert or "-----END CERTIFICATE-----" not in ldap_ca_cert:
         logger.error("ERROR: LDAP certificate is not valid PEM text.")
-        sys.exit(1)
+        return 1
 
-    logger.info(f"Loading {excel_path.name} (sheet '{SHEET_NAME}', rows {START_ROW}-{END_ROW})...")
+    logger.info(
+        "Loading {} (sheet '{}', complete worksheet)...".format(
+            excel_path.name,
+            SHEET_NAME,
+        )
+    )
+
     try:
-        df, excel_elapsed = load_resource_excel_fast(excel_path, SHEET_NAME, START_ROW, END_ROW, empty_row_stop=EXCEL_EMPTY_ROW_STOP)
+        df, excel_elapsed = load_resource_excel_fast(
+            excel_path,
+            SHEET_NAME,
+        )
     except Exception as exc:
-        logger.error(f"ERROR reading Excel workbook: {exc}")
-        sys.exit(1)
+        logger.error(
+            "ERROR reading Excel workbook: {}".format(exc)
+        )
+        return 1
 
     timings["Excel"] = excel_elapsed
-    logger.info(f"Excel parsed: {len(df)} meaningful rows in {excel_elapsed:.2f}s")
 
-    target_enclosure = input("\nEnter the Enclosure Name to process: ").strip()
-    enc_df = df[df["enclosure_physical_name"] == target_enclosure]
+    logger.info(
+        "Excel parsed: {} populated rows from complete worksheet in {:.2f}s"
+        .format(
+            len(df),
+            excel_elapsed,
+        )
+    )
+
+    target_enclosure = input(
+        "\nEnter the Enclosure Name to process: "
+    ).strip()
+
+    target_enclosure_normalized = target_enclosure.lower()
+
+    enc_df = df[
+        df["enclosure_physical_name"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        == target_enclosure_normalized
+    ]
+
     if enc_df.empty:
-        logger.info(f"\nNo resources found for '{target_enclosure}'.")
-        sys.exit(0)
+        logger.info(
+            "\nNo resources found for '{}'.".format(
+                target_enclosure
+            )
+        )
+        return 0
 
-    oa_df = enc_df[enc_df["equipment_type"] == "Enclosure OA"]
+    oa_df = enc_df[
+        enc_df["equipment_type"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        == "enclosure oa"
+    ]
     primary_oa_ip, secondary_oa_ip = None, None
     for row in oa_df.itertuples(index=False):
         try:
@@ -1444,10 +1552,30 @@ def main():
         except Exception: continue
         ip = str(row.ilo_ip).strip()
         if not ip: continue
-        if oa_slot == 1: primary_oa_ip = ip
-        elif oa_slot == 2: secondary_oa_ip = ip
+        if oa_slot == 1:
+            primary_oa_ip = ip
+        elif oa_slot == 2:
+            secondary_oa_ip = ip
 
-    blade_df = enc_df[enc_df["equipment_type"].isin(VALID_EQUIPMENT_TYPES)]
+    logger.info(
+        "\nOA candidates        : Primary={} | Secondary={}".format(
+            primary_oa_ip or "Not found",
+            secondary_oa_ip or "Not found",
+        )
+    )
+
+    valid_equipment_types_normalized = {
+        str(value).strip().lower()
+        for value in VALID_EQUIPMENT_TYPES
+    }
+
+    blade_df = enc_df[
+        enc_df["equipment_type"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin(valid_equipment_types_normalized)
+    ]
     total_rows = len(blade_df)
     servers_to_process = []
     global_results = {}
@@ -1463,7 +1591,10 @@ def main():
 
         result_key = f"{slot_num}:{ip}:{row_index}"
         result = {
-            "slot": slot_num, "ip": ip, "status": "Successful",
+            "slot": slot_num,
+            "ip": ip,
+            "hostname": str(row.hostname).strip(),
+            "status": "Successful",
             "Auth": TaskStatus.PENDING.value, "Lic": TaskStatus.PENDING.value, "Usr": TaskStatus.PENDING.value,
             "Net": TaskStatus.PENDING.value, "SNTP": TaskStatus.PENDING.value, "IPMI": TaskStatus.PENDING.value, 
             "ID": TaskStatus.PENDING.value, "LDAP": TaskStatus.PENDING.value, "Cert": TaskStatus.PENDING.value, 
@@ -1494,7 +1625,8 @@ def main():
     total_valid = len(servers_to_process)
     logger.info(f"\nBlade servers found : {total_rows}")
     logger.info(f"Valid for processing: {total_valid}")
-    if total_valid == 0: sys.exit(0)
+    if total_valid == 0:
+        return 0
 
     # ------------------------------------------------------------------------
     # Post-Configuration Reboot Prompt
@@ -1507,8 +1639,66 @@ def main():
     timings["OA Discovery"] = time.monotonic() - oa_discovery_start
 
     if not active_oa_ip:
-        logger.error("\nERROR: Unable to find ACTIVE OA.")
-        sys.exit(1)
+        logger.error(
+            "\nERROR: Unable to find ACTIVE OA."
+        )
+
+        failure_detail = (
+            "Unable to connect to or identify an ACTIVE OA. "
+            "Primary candidate: {}; Secondary candidate: {}"
+            .format(
+                primary_oa_ip or "Not found",
+                secondary_oa_ip or "Not found",
+            )
+        )
+
+        summary_rows = []
+
+        for result in sorted(
+            global_results.values(),
+            key=lambda item: item["slot"],
+        ):
+            result["status"] = "Failed"
+            result["errors"].append(
+                "[OA Discovery] {}".format(
+                    failure_detail
+                )
+            )
+
+            slot_display = (
+                "Slot {:02}".format(result["slot"])
+                if result["slot"] != 999
+                else "Slot ??"
+            )
+
+            summary_rows.append(
+                make_summary_row(
+                    row=slot_display,
+                    item_type="iLO Blade",
+                    name=result.get(
+                        "hostname",
+                        target_enclosure,
+                    ),
+                    target=result.get("ip", ""),
+                    status="Failed",
+                    time_seconds=0.0,
+                    details=failure_detail,
+                )
+            )
+
+        print_summary_report(
+            summary_rows,
+            title="FINAL iLO BLADE SUMMARY",
+        )
+
+        write_summary_csv(
+            summary_rows,
+            vars.SCRIPT_ARTIFACT_PREFIXES[
+                "configure_ilo_BL"
+            ],
+        )
+
+        return 1
 
     logger.info("\n" + "=" * 100)
     logger.info("PHASE 1 & 2: CONCURRENT OA/RIBCL & iLO REDFISH CONFIGURATION")
@@ -1615,7 +1805,7 @@ def main():
                         row_copy['errors'] = " | ".join(row_copy['errors'])
                     writer.writerow(row_copy)
                     
-        logger.info(f"\nCSV Report successfully saved to: {CSV_REPORT_PATH}")
+        logger.info(f"\nDetailed CSV successfully saved to: {CSV_REPORT_PATH}")
     except Exception as e:
         logger.error(f"\nFailed to save CSV report: {e}")
     # ========================================================================
@@ -1635,8 +1825,63 @@ def main():
     logger.info(f"{'TOTAL EXECUTION TIME':<30}: {timings.get('Total', 0):>8.2f} sec")
     logger.info("=" * 65)
 
-    if fail_count > 0: sys.exit(1)
-    sys.exit(0)
+    summary_rows = []
+
+    for result in report_list:
+        slot_display = (
+            "Slot {:02}".format(result["slot"])
+            if result["slot"] != 999
+            else "Slot ??"
+        )
+
+        task_details = (
+            "AUTH={Auth}; LIC={Lic}; USR={Usr}; NET={Net}; "
+            "SNTP={SNTP}; IPMI={IPMI}; ID={ID}; LDAP={LDAP}; "
+            "CERT={Cert}; BOOT={Boot}; RBT={Reboot}"
+        ).format(**result)
+
+        if result.get("errors"):
+            task_details += "; " + " | ".join(
+                result["errors"]
+            )
+
+        summary_rows.append(
+            make_summary_row(
+                row=slot_display,
+                item_type="iLO Blade",
+                name=result.get("hostname", target_enclosure),
+                target=result.get("ip", ""),
+                status=result.get("status", "Unknown"),
+                time_seconds=(
+                    result.get("ribcl_seconds", 0.0)
+                    + result.get("redfish_seconds", 0.0)
+                ),
+                details=task_details,
+            )
+        )
+
+    print_summary_report(
+        summary_rows,
+        title="FINAL iLO BLADE SUMMARY",
+    )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "configure_ilo_BL"
+        ],
+    )
+
+    return 1 if fail_count > 0 else 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "configure_ilo_BL"
+            ],
+            title="BLADE iLO CONFIGURATION",
+        )
+    )

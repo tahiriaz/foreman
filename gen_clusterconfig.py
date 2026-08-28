@@ -3,10 +3,17 @@
 import os
 import re
 import sys
+import time
 
 import pandas as pd
 
 from functions import vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 
 
 # ============================================================================
@@ -784,6 +791,22 @@ def write_cluster_files(
             )
         )
 
+    return {
+        "cluster_dir": cluster_dir,
+        "before_path": before_path,
+        "after_path": after_path,
+        "before_action": (
+            "Overwritten"
+            if before_exists
+            else "Generated"
+        ),
+        "after_action": (
+            "Overwritten"
+            if after_exists
+            else "Generated"
+        ),
+    }
+
 
 # ============================================================================
 # MAIN
@@ -938,11 +961,14 @@ def main():
 
     generated_clusters = 0
     skipped_clusters = 0
+    summary_rows = []
 
     for (
         enclosure_name,
         cluster_name,
     ), group in grouped:
+        group_start = time.time()
+
         group = group.sort_values(
             "logical_name"
         )
@@ -973,6 +999,21 @@ def main():
 
             skipped_clusters += 1
 
+            summary_rows.append(
+                make_summary_row(
+                    row="-",
+                    item_type="Cluster Commands",
+                    name=cluster_name,
+                    target=str(enclosure_name),
+                    status="Skipped",
+                    time_seconds=time.time() - group_start,
+                    details=(
+                        "Scope '{}' not found in ILO_SCOPE_SETTINGS"
+                        .format(current_scope)
+                    ),
+                )
+            )
+
             continue
 
         required_scope_keys = [
@@ -1002,6 +1043,21 @@ def main():
 
             skipped_clusters += 1
 
+            summary_rows.append(
+                make_summary_row(
+                    row="-",
+                    item_type="Cluster Commands",
+                    name=cluster_name,
+                    target=str(enclosure_name),
+                    status="Skipped",
+                    time_seconds=time.time() - group_start,
+                    details=(
+                        "Missing scope settings: {}"
+                        .format(missing_scope_keys)
+                    ),
+                )
+            )
+
             continue
 
         (
@@ -1014,11 +1070,32 @@ def main():
             scope_config,
         )
 
-        write_cluster_files(
+        file_info = write_cluster_files(
             enclosure_name,
             cluster_name,
             before_content,
             after_content,
+        )
+
+        summary_rows.append(
+            make_summary_row(
+                row="-",
+                item_type="Cluster Commands",
+                name=cluster_name,
+                target=str(enclosure_name),
+                status="Successful",
+                time_seconds=time.time() - group_start,
+                details=(
+                    "{}: {}; {}: {}; Directory={}"
+                    .format(
+                        file_info["before_action"],
+                        file_info["before_path"],
+                        file_info["after_action"],
+                        file_info["after_path"],
+                        file_info["cluster_dir"],
+                    )
+                ),
+            )
         )
 
         generated_clusters += 1
@@ -1039,10 +1116,28 @@ def main():
         )
     )
 
+    print_summary_report(
+        summary_rows,
+        title="FINAL CLUSTER COMMAND GENERATION SUMMARY",
+    )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "gen_clusterconfig"
+        ],
+    )
+
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(
-        main()
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "gen_clusterconfig"
+            ],
+            title="CLUSTER COMMAND GENERATOR",
+        )
     )

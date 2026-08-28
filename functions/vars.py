@@ -1,4 +1,4 @@
-# BUILD_MARKER: CENTRAL_PROJECT_CONFIG_V10_MERGED_SCOPE_20260828
+# BUILD_MARKER: CENTRAL_PROJECT_CONFIG_V11_STANDARD_LOG_REPORT_20260828
 
 import os
 
@@ -46,6 +46,21 @@ END_ROW = 1072
 # Overall Foreman/DNS orchestration worker pool.
 MAX_WORKERS = 8
 LOG_FILE_PREFIX = 'provisioning'
+
+# Common file prefixes for console logs and standardized summary CSVs.
+# Root scripts use these names so logging/report artifacts remain predictable.
+SCRIPT_ARTIFACT_PREFIXES = {
+    'create_foreman_host': 'Foreman_Host',
+    'configure_ilo_RM': 'ILO_RM',
+    'configure_ilo_BL': 'ILO_BL',
+    'configure_raid_RM': 'RAID_RM',
+    'configure_raid_BL': 'RAID_BL',
+    'create_dns_records': 'DNS',
+    'gen_oaconfig': 'OA_Config',
+    'gen_clusterconfig': 'Cluster_Config',
+    'get_mac_RM': 'MAC_RM',
+    'get_mac_BL': 'MAC_BL',
+}
 
 
 # ============================================================================
@@ -147,7 +162,7 @@ ILO_RM_USERNAME = 'Administrator'
 ILO_RM_PASSWORD = 'Th@les01'
 
 OA_USERNAME = 'Administrator'
-OA_PASSWORD = 'Siljeddah15'
+OA_PASSWORD = 'Th@les01'
 
 ILO_BL_USERNAME = 'thlocaladmin'
 ILO_BL_PASSWORD = 'Th@les018664'

@@ -18,6 +18,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from functions import vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 
 
 # Disable insecure request warnings for self-signed iLO certificates
@@ -4302,12 +4308,45 @@ def main():
 
         print(
             (
-                "Audit log saved to: "
+                "Detailed CSV saved to: "
                 f"{report_path}\n"
             )
         )
 
-    return 0
+    summary_rows = []
+
+    for item in sorted_report:
+        task_details = (
+            "AUTH={AUTH}; LIC={LIC}; USR={USR}; NET={NET}; "
+            "IPMI={IPMI}; ID={ID}; LDAP={LDAP}; CERT={CERT}; "
+            "TZ={TZ}; SNTP={SNTP}; BOOT={BOOT}"
+        ).format(**item)
+
+        summary_rows.append(
+            make_summary_row(
+                row="-",
+                item_type="iLO Rackmount",
+                name=item.get("Hostname", ""),
+                target=item.get("IP", ""),
+                status=item.get("Status", "Unknown"),
+                time_seconds=item.get("Time", 0.0),
+                details=task_details,
+            )
+        )
+
+    print_summary_report(
+        summary_rows,
+        title="FINAL iLO RACK-MOUNT SUMMARY",
+    )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "configure_ilo_RM"
+        ],
+    )
+
+    return 1 if failed > 0 else 0
 
 
 # =============================================================================
@@ -4317,5 +4356,11 @@ def main():
 if __name__ == "__main__":
 
     sys.exit(
-        main()
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "configure_ilo_RM"
+            ],
+            title="RACK-MOUNT iLO CONFIGURATION",
+        )
     )

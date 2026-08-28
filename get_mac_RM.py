@@ -5,6 +5,7 @@ import gc
 import os
 import platform
 import subprocess
+import time
 import warnings
 
 import requests
@@ -15,6 +16,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from functions import vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 
 
 urllib3.disable_warnings(
@@ -331,6 +338,8 @@ def get_redfish_details(
 
 def process_single_server(server):
     """ThreadPoolExecutor worker."""
+    start_time = time.time()
+
     ilo_ip = server[
         "ilo_ip"
     ]
@@ -347,6 +356,10 @@ def process_single_server(server):
             "status": "skipped",
             "msg": (
                 "iLO IP is missing or invalid."
+            ),
+            "time_seconds": round(
+                time.time() - start_time,
+                2,
             ),
         })
 
@@ -367,6 +380,10 @@ def process_single_server(server):
                 .format(
                     vars.MAC_RM_PING_TIMEOUT_MS
                 )
+            ),
+            "time_seconds": round(
+                time.time() - start_time,
+                2,
             ),
         })
 
@@ -390,6 +407,10 @@ def process_single_server(server):
         "status": "success",
         "serial_no": serial_no,
         "macs": macs,
+        "time_seconds": round(
+            time.time() - start_time,
+            2,
+        ),
     })
 
     return result
@@ -737,6 +758,16 @@ def main():
                     )
                 )
 
+                failed_result = dict(server)
+                failed_result.update({
+                    "status": "failed",
+                    "msg": str(exc),
+                    "serial_no": "",
+                    "macs": [""] * vars.MAC_MAX_ADDRESSES,
+                    "time_seconds": 0.0,
+                })
+                results.append(failed_result)
+
     print(
         "\nLoading Excel file "
         "(Writing Mode) to inject data..."
@@ -786,13 +817,14 @@ def main():
             result[
                 "status"
             ]
-            == "skipped"
+            in ("skipped", "failed")
         ):
             print(
                 "WARNING: {}".format(
-                    result[
-                        "msg"
-                    ]
+                    result.get(
+                        "msg",
+                        "MAC collection failed",
+                    )
                 )
             )
 
@@ -907,6 +939,81 @@ def main():
         excel_path
     )
 
+    summary_rows = []
+
+    for result in results:
+        raw_status = result.get("status", "failed")
+        macs = result.get(
+            "macs",
+            [""] * vars.MAC_MAX_ADDRESSES,
+        )
+        found_count = len([mac for mac in macs if mac])
+        expected_count = result.get("expected_macs", 0)
+
+        if raw_status == "skipped":
+            status = "Skipped"
+        elif raw_status == "failed":
+            status = "Failed"
+        elif found_count < expected_count:
+            status = "Partial"
+        else:
+            status = "Successful"
+
+        details = result.get("msg", "")
+
+        if raw_status == "success":
+            details = (
+                "Serial={}; MACs={}/{}"
+                .format(
+                    result.get("serial_no", ""),
+                    found_count,
+                    expected_count,
+                )
+            )
+
+        summary_rows.append(
+            make_summary_row(
+                row=result.get("row_idx", "-"),
+                item_type=result.get("eq_type", "Rackmount"),
+                name=result.get("eq_type", "Rackmount"),
+                target=result.get("ilo_ip", ""),
+                status=status,
+                time_seconds=result.get("time_seconds", 0.0),
+                details=details,
+            )
+        )
+
+    print_summary_report(
+        summary_rows,
+        title="FINAL RACK-MOUNT MAC COLLECTION SUMMARY",
+    )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "get_mac_RM"
+        ],
+    )
+
+    return (
+        1
+        if any(
+            row["Status"] in ("Failed", "Partial")
+            for row in summary_rows
+        )
+        else 0
+    )
+
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    sys.exit(
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "get_mac_RM"
+            ],
+            title="RACK-MOUNT MAC COLLECTION",
+        )
+    )

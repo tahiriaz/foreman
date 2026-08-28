@@ -1,64 +1,87 @@
-# Foreman Provisioning Project
+# Foreman / HPE Automation Project
 
-## Structure
+## Main scripts
 
 ```text
-provisioning_architecture/
-├── create_host.py
+foreman/
+├── create_foreman_host.py
+├── create_dns_records.py
+├── configure_ilo_RM.py
+├── configure_ilo_BL.py
+├── configure_raid_RM.py
+├── configure_raid_BL.py
+├── get_mac_RM.py
+├── get_mac_BL.py
+├── gen_oaconfig.py
+├── gen_clusterconfig.py
 ├── functions/
-│   ├── __init__.py
 │   ├── vars.py
-│   ├── shared.py
+│   ├── output_log.py
+│   ├── reporting.py
 │   ├── inventory.py
 │   ├── foreman.py
 │   ├── dns.py
 │   ├── process_host.py
 │   ├── process_vm.py
 │   ├── orchestrator.py
-│   └── reporting.py
+│   └── shared.py
+├── logs/
 ├── scripts/
 │   └── add_dns_records.ps1
 └── Templates/
-    └── Resource List-v7.6.xlsx   # copy your workbook here
+    └── Resource List-v7.6.xlsx
 ```
 
-## Responsibilities
+## Central configuration
 
-- `create_host.py`: application entry point and row-range selection.
-- `inventory.py`: Excel loading, required columns, and row validation.
-- `foreman.py`: Foreman REST helpers and shared resource-ID cache.
-- `dns.py`: DNS record generation, temporary CSV handling, and PowerShell execution.
-- `process_host.py`: physical-host Foreman payload and provisioning flow.
-- `process_vm.py`: VM payload, Foreman creation, DNS, and Ansible scheduling.
-- `orchestrator.py`: processor mapping, concurrent execution, and result collection.
-- `reporting.py`: final provisioning table and summary.
-- `shared.py`: shared value-validation helper.
-- `vars.py`: environment/project configuration.
-- `scripts/add_dns_records.ps1`: Windows DNS operations.
+Project configuration is maintained in `functions/vars.py`. This includes the
+shared workbook and sheet, global row range for range-based jobs, credentials,
+DNS, iLO/OA, RAID, MAC collection, OA generation, cluster generation, output
+paths, concurrency settings, and script artifact prefixes.
 
-## Result model
+`gen_oaconfig.py` and `gen_clusterconfig.py` intentionally read the complete
+configured worksheet. Other range-based automation uses the global
+`START_ROW` / `END_ROW` values where applicable.
 
-Foreman-backed processors return these common fields:
+## Console logs
 
-- `status`: `Successful`, `Partial`, or `Failed`
-- `foreman_status`
-- `dns_status`
-- `ansible_status`
-- `details`
+Every Python script in the main project folder runs through the shared
+`functions/output_log.py` wrapper. Console stdout/stderr is still displayed
+normally and is simultaneously written to a timestamped `.log` file under
+`logs/`.
 
-DNS-only resources return `status` and `details`; the orchestrator maps their
-status into the DNS column automatically.
+Pre-existing Python `logging.StreamHandler` instances are also rebound while a
+script runs, so logger-based output such as the blade iLO workflow is captured
+in the same console log.
 
-## Running
+## Standard summary report
 
-1. Copy `Resource List-v7.6.xlsx` into `Templates/`.
-2. Review credentials and environment values in `functions/vars.py`.
-3. Adjust `START_ROW` and `END_ROW` in `create_host.py`.
-4. Run:
+Every main-folder script produces a standardized final summary using these
+columns:
+
+```text
+ROW | TYPE | NAME | TARGET | STATUS | TIME (s) | DETAILS
+```
+
+A matching timestamped CSV is saved under `logs/` with the same seven fields:
+
+```text
+Row,Type,Name,Target,Status,TimeSeconds,Details
+```
+
+Scripts that have useful task-specific detailed reports, such as iLO and RAID,
+retain those detailed reports as well. The standardized summary is the common
+cross-script view.
+
+## Foreman provisioning
+
+`create_host.py` was renamed to `create_foreman_host.py`.
+
+Run it with:
 
 ```powershell
-python create_host.py
+python create_foreman_host.py
 ```
 
-The program runs valid rows concurrently and prints a final report containing
-overall, Foreman, DNS, and Ansible status.
+The Foreman workflow continues to track Foreman, DNS, and Ansible sub-statuses;
+they are included in the standardized summary `Details` field.

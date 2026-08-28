@@ -12,6 +12,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from functions import vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 
 
 urllib3.disable_warnings(
@@ -2238,6 +2244,9 @@ def process_server(
                     "status":
                         "Skipped",
 
+                    "time_seconds":
+                        0.0,
+
                     "reason":
                         (
                             "Existing RAID found "
@@ -2927,7 +2936,7 @@ def main():
                 CONTROLLER_TIMEOUT_MINUTES,
                 RAID_TIMEOUT_MINUTES,
             ):
-                server
+                (server, time.time())
 
             for server
             in servers_to_process
@@ -2940,11 +2949,12 @@ def main():
             )
         ):
 
-            server_data = (
-                futures[
-                    future
-                ]
-            )
+            (
+                server_data,
+                submitted_at,
+            ) = futures[
+                future
+            ]
 
             try:
 
@@ -2974,6 +2984,14 @@ def main():
                             f"{exc}"
                         ),
                 }
+
+            result[
+                "time_seconds"
+            ] = round(
+                time.time()
+                - submitted_at,
+                2,
+            )
 
             final_report.append(
                 result
@@ -3093,6 +3111,7 @@ def main():
                 "row",
                 "ip",
                 "status",
+                "time_seconds",
                 "reason",
             ]
         ]
@@ -3103,7 +3122,7 @@ def main():
         )
 
         print(
-            "Summary report saved to: "
+            "Detailed CSV saved to: "
             f"{report_path}\n"
         )
 
@@ -3112,6 +3131,49 @@ def main():
 # ENTRY POINT
 # =============================================================================
 
+    summary_rows = [
+        make_summary_row(
+            row=item.get("row", "-"),
+            item_type="RAID Rackmount",
+            name="DL380 Gen10+",
+            target=item.get("ip", ""),
+            status=item.get("status", "Unknown"),
+            time_seconds=item.get("time_seconds", 0.0),
+            details=item.get("reason", ""),
+        )
+        for item in final_report
+    ]
+
+    print_summary_report(
+        summary_rows,
+        title="FINAL RAID RACK-MOUNT SUMMARY",
+    )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "configure_raid_RM"
+        ],
+    )
+
+    return (
+        1
+        if any(
+            item.get("status") == "Failed"
+            for item in final_report
+        )
+        else 0
+    )
+
+
 if __name__ == "__main__":
 
-    main()
+    sys.exit(
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "configure_raid_RM"
+            ],
+            title="RACK-MOUNT RAID CONFIGURATION",
+        )
+    )

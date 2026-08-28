@@ -28,6 +28,12 @@ import win32com.client as win32
 from openpyxl import load_workbook
 
 from functions import vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 
 
 # ============================================================================
@@ -990,7 +996,10 @@ def main():
         ]
     )
 
+    summary_rows = []
+
     for blade in blade_rows:
+        item_start = time.time()
         row_idx = blade[
             "row_idx"
         ]
@@ -1019,6 +1028,18 @@ def main():
                 "Missing or invalid enclosure_slot."
                 .format(
                     row_idx
+                )
+            )
+
+            summary_rows.append(
+                make_summary_row(
+                    row=row_idx,
+                    item_type=equipment_type,
+                    name="Unknown bay",
+                    target=enclosure_name,
+                    status="Skipped",
+                    time_seconds=time.time() - item_start,
+                    details="Missing or invalid enclosure_slot",
                 )
             )
 
@@ -1098,6 +1119,36 @@ def main():
                     )
                 )
 
+        found_count = len([mac for mac in macs if mac])
+
+        if (
+            serial_no in ("Data not found", "Serial Number not found")
+            or found_count < vars.MAC_MAX_ADDRESSES
+        ):
+            summary_status = "Partial"
+        else:
+            summary_status = "Successful"
+
+        summary_rows.append(
+            make_summary_row(
+                row=row_idx,
+                item_type=equipment_type,
+                name="Bay {:02}".format(bay_number),
+                target=enclosure_name,
+                status=summary_status,
+                time_seconds=time.time() - item_start,
+                details=(
+                    "Serial={}; MACs={}/{}; ActiveOA={}"
+                    .format(
+                        serial_no,
+                        found_count,
+                        vars.MAC_MAX_ADDRESSES,
+                        oa.active_ip or "Unknown",
+                    )
+                ),
+            )
+        )
+
     print(
         "\nSaving updates to {}..."
         .format(
@@ -1119,6 +1170,37 @@ def main():
         excel_path
     )
 
+    print_summary_report(
+        summary_rows,
+        title="FINAL BLADE MAC COLLECTION SUMMARY",
+    )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "get_mac_BL"
+        ],
+    )
+
+    return (
+        1
+        if any(
+            row["Status"] in ("Failed", "Partial")
+            for row in summary_rows
+        )
+        else 0
+    )
+
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    sys.exit(
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "get_mac_BL"
+            ],
+            title="BLADE MAC COLLECTION",
+        )
+    )

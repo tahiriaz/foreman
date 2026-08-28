@@ -1,7 +1,6 @@
 # BUILD_MARKER: DNS_STANDALONE_CENTRAL_V2_20260828
 
 import concurrent.futures
-import csv
 import os
 import sys
 import time
@@ -9,6 +8,12 @@ import time
 import openpyxl
 
 from functions import dns, vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 
 
 # =============================================================================
@@ -318,169 +323,36 @@ def process_dns_row(vm):
 # REPORTING
 # =============================================================================
 
-def print_final_report(
-    results,
-    total_time,
-):
-    results.sort(
-        key=lambda item:
-            item["ExcelRow"]
-    )
+def build_summary_rows(results):
+    """Convert DNS worker results to the common project summary schema."""
+    summary = []
 
-    successful = sum(
-        1
-        for item in results
-        if item["Status"]
-        == "Successful"
-    )
-
-    skipped = sum(
-        1
-        for item in results
-        if item["Status"]
-        == "Skipped"
-    )
-
-    failed = sum(
-        1
-        for item in results
-        if item["Status"]
-        == "Failed"
-    )
-
-    width = 140
-
-    print(
-        "\n"
-        + "=" * width
-    )
-
-    print(
-        "FINAL DNS EXECUTION REPORT"
-    )
-
-    print(
-        "=" * width
-    )
-
-    print(
-        "{:<7} | {:<22} | {:<20} | {:<11} | "
-        "{:<7} | {:<9} | {}".format(
-            "ROW",
-            "LOGICAL NAME",
-            "EQUIPMENT TYPE",
-            "STATUS",
-            "RECORDS",
-            "TIME",
-            "DETAILS",
+    for result in results:
+        details = "Records={}; ReturnCode={}".format(
+            result.get("DNSRecords", 0),
+            result.get("ReturnCode", ""),
         )
-    )
 
-    print(
-        "-" * width
-    )
+        result_details = str(
+            result.get("Details", "")
+        ).strip()
 
-    for item in results:
-        print(
-            "{:<7} | {:<22} | {:<20} | {:<11} | "
-            "{:<7} | {:<9.2f} | {}".format(
-                item["ExcelRow"],
-                str(
-                    item["LogicalName"]
-                )[:22],
-                str(
-                    item["EquipmentType"]
-                )[:20],
-                item["Status"],
-                item["DNSRecords"],
-                item["TimeSeconds"],
-                item["Details"],
+        if result_details:
+            details += "; " + result_details
+
+        summary.append(
+            make_summary_row(
+                row=result.get("ExcelRow", "-"),
+                item_type=result.get("EquipmentType", ""),
+                name=result.get("LogicalName", ""),
+                target=result.get("Hostname", ""),
+                status=result.get("Status", "Unknown"),
+                time_seconds=result.get("TimeSeconds", 0.0),
+                details=details,
             )
         )
 
-    print(
-        "=" * width
-    )
-
-    print(
-        "TOTAL: {} | SUCCESSFUL: {} | "
-        "FAILED: {} | SKIPPED: {} | "
-        "TIME: {:.2f}s".format(
-            len(results),
-            successful,
-            failed,
-            skipped,
-            total_time,
-        )
-    )
-
-    print(
-        "=" * width
-        + "\n"
-    )
-
-    return failed
-
-
-def write_audit_report(
-    results,
-):
-    if not os.path.isdir(
-        vars.LOG_DIR
-    ):
-        os.makedirs(
-            vars.LOG_DIR
-        )
-
-    timestamp = time.strftime(
-        "%Y%m%d-%H%M%S"
-    )
-
-    report_path = os.path.join(
-        vars.LOG_DIR,
-        "{}_{}.csv".format(
-            vars.DNS_REPORT_PREFIX,
-            timestamp,
-        ),
-    )
-
-    fieldnames = [
-        "ExcelRow",
-        "EquipmentType",
-        "Hostname",
-        "LogicalName",
-        "Status",
-        "DNSRecords",
-        "ReturnCode",
-        "Details",
-        "TimeSeconds",
-    ]
-
-    with open(
-        report_path,
-        "w",
-        newline="",
-    ) as report_file:
-        writer = csv.DictWriter(
-            report_file,
-            fieldnames=fieldnames,
-        )
-
-        writer.writeheader()
-
-        for item in results:
-            writer.writerow(
-                item
-            )
-
-    print(
-        "Audit report saved to: {}"
-        .format(
-            report_path
-        )
-    )
-
-    return report_path
+    return summary
 
 
 # =============================================================================
@@ -668,23 +540,44 @@ def main():
         - global_start
     )
 
-    failed = print_final_report(
-        results,
-        total_time,
-    )
-
-    write_audit_report(
+    summary_rows = build_summary_rows(
         results
     )
 
-    return (
-        1
-        if failed
-        else 0
+    print_summary_report(
+        summary_rows,
+        title="FINAL DNS SUMMARY",
     )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "create_dns_records"
+        ],
+    )
+
+    print(
+        "TOTAL EXECUTION TIME: {:.2f} seconds".format(
+            total_time
+        )
+    )
+
+    failed = any(
+        str(item.get("Status", "")).lower()
+        == "failed"
+        for item in results
+    )
+
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
     sys.exit(
-        main()
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "create_dns_records"
+            ],
+            title="DNS RECORD CREATION",
+        )
     )

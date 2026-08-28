@@ -2,11 +2,18 @@
 
 import os
 import sys
+import time
 
 import openpyxl
 from jinja2 import Environment, FileSystemLoader
 
 from functions import vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 
 
 # ============================================================================
@@ -277,6 +284,7 @@ def get_scope_template_vars(scope_name):
 def new_enclosure(
     enc_name,
     scope,
+    excel_row=None,
 ):
     """Create a complete enclosure dictionary with all Jinja slot keys."""
     enclosure = {
@@ -285,6 +293,7 @@ def new_enclosure(
             enc_name
         ),
         "scope": scope,
+        "_excel_row": excel_row,
         "oa01_name": "",
         "oa01_ip": "",
         "oa02_name": "",
@@ -406,6 +415,7 @@ def build_enclosure_data(records):
             current_enclosure = new_enclosure(
                 enc_phys_name,
                 current_scope,
+                excel_row=excel_row,
             )
 
             enclosures_data.append(
@@ -634,12 +644,25 @@ def render_configs(
     generated = 0
     overwritten = 0
     skipped = 0
+    summary_rows = []
 
     for enclosure in enclosures_data:
+        item_start = time.time()
         if not enclosure[
             "enc_name"
         ]:
             skipped += 1
+            summary_rows.append(
+                make_summary_row(
+                    row=enclosure.get("_excel_row", "-"),
+                    item_type="OA Config",
+                    name="Unknown enclosure",
+                    target="",
+                    status="Skipped",
+                    time_seconds=time.time() - item_start,
+                    details="Missing enclosure name",
+                )
+            )
             continue
 
         enc_scope = enclosure.get(
@@ -666,6 +689,20 @@ def render_configs(
             )
 
             skipped += 1
+            summary_rows.append(
+                make_summary_row(
+                    row=enclosure.get("_excel_row", "-"),
+                    item_type="OA Config",
+                    name=enclosure.get("enc_name", ""),
+                    target="",
+                    status="Skipped",
+                    time_seconds=time.time() - item_start,
+                    details=(
+                        "Unknown or missing scope: '{}'"
+                        .format(enc_scope)
+                    ),
+                )
+            )
             continue
 
         render_vars = {}
@@ -736,10 +773,29 @@ def render_configs(
                 )
             )
 
+        action = (
+            "Overwritten"
+            if file_exists
+            else "Generated"
+        )
+
+        summary_rows.append(
+            make_summary_row(
+                row=enclosure.get("_excel_row", "-"),
+                item_type="OA Config",
+                name=enclosure.get("enc_name", ""),
+                target=output_filepath,
+                status="Successful",
+                time_seconds=time.time() - item_start,
+                details="{} [{}]".format(action, enc_scope),
+            )
+        )
+
     return (
         generated,
         overwritten,
         skipped,
+        summary_rows,
     )
 
 
@@ -879,6 +935,7 @@ def main():
         generated,
         overwritten,
         skipped,
+        summary_rows,
     ) = render_configs(
         enclosures_data,
         cert_1_content,
@@ -894,10 +951,28 @@ def main():
         )
     )
 
+    print_summary_report(
+        summary_rows,
+        title="FINAL OA CONFIG GENERATION SUMMARY",
+    )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "gen_oaconfig"
+        ],
+    )
+
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(
-        main()
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "gen_oaconfig"
+            ],
+            title="OA CONFIG GENERATOR",
+        )
     )

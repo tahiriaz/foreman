@@ -1,0 +1,275 @@
+systemctl enable pcsd.service --now
+
+pcs host auth tvsnvrapp033mp.mak.iss tvsnvrapp034mp.mak.iss tvsnvrapp035mp.mak.iss tvsnvrapp036mp.mak.iss tvsnvrapp037mp.mak.iss tvsnvrapp038mp.mak.iss tvsnvrapp039mp.mak.iss tvsnvrapp040mp.mak.iss -u hacluster -p "Th@les01"
+
+pcs cluster setup CLNVRM040 --start \
+tvsnvrapp033mp addr=10.101.44.43 addr=10.101.28.43 \
+tvsnvrapp034mp addr=10.101.44.44 addr=10.101.28.44 \
+tvsnvrapp035mp addr=10.101.44.45 addr=10.101.28.45 \
+tvsnvrapp036mp addr=10.101.44.46 addr=10.101.28.46 \
+tvsnvrapp037mp addr=10.101.44.47 addr=10.101.28.47 \
+tvsnvrapp038mp addr=10.101.44.48 addr=10.101.28.48 \
+tvsnvrapp039mp addr=10.101.44.49 addr=10.101.28.49 \
+tvsnvrapp040mp addr=10.101.44.50 addr=10.101.28.50 \
+transport knet \
+link linknumber=0 link_priority=1 link linknumber=1 link_priority=0 \
+totem token=10000
+
+pcs cluster start --all
+pcs cluster enable --all
+
+pcs property set symmetric-cluster=true
+pcs property set placement-strategy=balanced
+pcs resource defaults update resource-stickiness=INFINITY migration-threshold=3 failure-timeout=1800s
+
+# Fencing Configuration
+pcs stonith create fence_tvsnvrapp033mp fence_ilo4 ip=10.101.18.61 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp033mp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp034mp fence_ilo4 ip=10.101.18.62 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp034mp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp035mp fence_ilo4 ip=10.101.18.63 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp035mp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp036mp fence_ilo4 ip=10.101.18.64 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp036mp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp037mp fence_ilo4 ip=10.101.18.65 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp037mp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp038mp fence_ilo4 ip=10.101.18.66 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp038mp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp039mp fence_ilo4 ip=10.101.18.67 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp039mp op monitor interval=600s
+pcs stonith create fence_tvsnvrapp040mp fence_ilo4 ip=10.101.18.68 username=hpilofence password="Th@les01" pcmk_host_list=tvsnvrapp040mp op monitor interval=600s
+
+# Node Utilization Limits
+pcs node utilization tvsnvrapp033mp rcount=13
+pcs node utilization tvsnvrapp034mp rcount=13
+pcs node utilization tvsnvrapp035mp rcount=13
+pcs node utilization tvsnvrapp036mp rcount=13
+pcs node utilization tvsnvrapp037mp rcount=13
+pcs node utilization tvsnvrapp038mp rcount=13
+pcs node utilization tvsnvrapp039mp rcount=13
+pcs node utilization tvsnvrapp040mp rcount=13
+
+# ---------------------------------------------------------
+# Storage & VIP for clnvrm041
+# ---------------------------------------------------------
+pcs resource create clnvrm041-vip ocf:heartbeat:IPaddr2 ip=10.101.27.43 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource utilization clnvrm041-vip rcount=1
+
+# Core Resource Group
+pcs resource create clnvrm041-nfsapp01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm041/app' directory='/app' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm041-core op monitor interval=60s
+pcs resource create clnvrm041-nfslog01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm041/log' directory='/var/log/thales' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm041-core op monitor interval=60s
+pcs resource create clnvrm041-nfsdat01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm041/data' directory='/data' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm041-core op monitor interval=60s
+pcs resource utilization rg-clnvrm041-core rcount=3
+pcs constraint colocation add rg-clnvrm041-core with clnvrm041-vip score=INFINITY
+
+# CCTV Recording Mounts
+pcs resource create clnvrm041-nfsrec01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm041/clnvrm041_p01' directory='/mnt/storage/clnvrm041_p01' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm041-nfsrec01 rcount=1
+pcs constraint colocation add clnvrm041-nfsrec01 with clnvrm041-vip score=INFINITY
+
+pcs resource create clnvrm041-nfsrec02 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm041/clnvrm041_p02' directory='/mnt/storage/clnvrm041_p02' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm041-nfsrec02 rcount=1
+pcs constraint colocation add clnvrm041-nfsrec02 with clnvrm041-vip score=INFINITY
+
+pcs resource create clnvrm041-nfsrec03 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm041/clnvrm041_p03' directory='/mnt/storage/clnvrm041_p03' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm041-nfsrec03 rcount=1
+pcs constraint colocation add clnvrm041-nfsrec03 with clnvrm041-vip score=INFINITY
+
+pcs resource create clnvrm041-nfsrec04 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm041/clnvrm041_p04' directory='/mnt/storage/clnvrm041_p04' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm041-nfsrec04 rcount=1
+pcs constraint colocation add clnvrm041-nfsrec04 with clnvrm041-vip score=INFINITY
+
+# Order constraints for Storage
+pcs constraint order start rg-clnvrm041-core then set clnvrm041-nfsrec01 clnvrm041-nfsrec02 clnvrm041-nfsrec03 clnvrm041-nfsrec04 sequential=false
+
+# ---------------------------------------------------------
+# Storage & VIP for clnvrm042
+# ---------------------------------------------------------
+pcs resource create clnvrm042-vip ocf:heartbeat:IPaddr2 ip=10.101.27.44 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource utilization clnvrm042-vip rcount=1
+
+# Core Resource Group
+pcs resource create clnvrm042-nfsapp01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm042/app' directory='/app' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm042-core op monitor interval=60s
+pcs resource create clnvrm042-nfslog01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm042/log' directory='/var/log/thales' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm042-core op monitor interval=60s
+pcs resource create clnvrm042-nfsdat01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm042/data' directory='/data' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm042-core op monitor interval=60s
+pcs resource utilization rg-clnvrm042-core rcount=3
+pcs constraint colocation add rg-clnvrm042-core with clnvrm042-vip score=INFINITY
+
+# CCTV Recording Mounts
+pcs resource create clnvrm042-nfsrec01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm042/clnvrm042_p01' directory='/mnt/storage/clnvrm042_p01' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm042-nfsrec01 rcount=1
+pcs constraint colocation add clnvrm042-nfsrec01 with clnvrm042-vip score=INFINITY
+
+pcs resource create clnvrm042-nfsrec02 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm042/clnvrm042_p02' directory='/mnt/storage/clnvrm042_p02' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm042-nfsrec02 rcount=1
+pcs constraint colocation add clnvrm042-nfsrec02 with clnvrm042-vip score=INFINITY
+
+pcs resource create clnvrm042-nfsrec03 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm042/clnvrm042_p03' directory='/mnt/storage/clnvrm042_p03' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm042-nfsrec03 rcount=1
+pcs constraint colocation add clnvrm042-nfsrec03 with clnvrm042-vip score=INFINITY
+
+pcs resource create clnvrm042-nfsrec04 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm042/clnvrm042_p04' directory='/mnt/storage/clnvrm042_p04' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm042-nfsrec04 rcount=1
+pcs constraint colocation add clnvrm042-nfsrec04 with clnvrm042-vip score=INFINITY
+
+# Order constraints for Storage
+pcs constraint order start rg-clnvrm042-core then set clnvrm042-nfsrec01 clnvrm042-nfsrec02 clnvrm042-nfsrec03 clnvrm042-nfsrec04 sequential=false
+
+# ---------------------------------------------------------
+# Storage & VIP for clnvrm043
+# ---------------------------------------------------------
+pcs resource create clnvrm043-vip ocf:heartbeat:IPaddr2 ip=10.101.27.45 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource utilization clnvrm043-vip rcount=1
+
+# Core Resource Group
+pcs resource create clnvrm043-nfsapp01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm043/app' directory='/app' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm043-core op monitor interval=60s
+pcs resource create clnvrm043-nfslog01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm043/log' directory='/var/log/thales' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm043-core op monitor interval=60s
+pcs resource create clnvrm043-nfsdat01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm043/data' directory='/data' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm043-core op monitor interval=60s
+pcs resource utilization rg-clnvrm043-core rcount=3
+pcs constraint colocation add rg-clnvrm043-core with clnvrm043-vip score=INFINITY
+
+# CCTV Recording Mounts
+pcs resource create clnvrm043-nfsrec01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm043/clnvrm043_p01' directory='/mnt/storage/clnvrm043_p01' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm043-nfsrec01 rcount=1
+pcs constraint colocation add clnvrm043-nfsrec01 with clnvrm043-vip score=INFINITY
+
+pcs resource create clnvrm043-nfsrec02 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm043/clnvrm043_p02' directory='/mnt/storage/clnvrm043_p02' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm043-nfsrec02 rcount=1
+pcs constraint colocation add clnvrm043-nfsrec02 with clnvrm043-vip score=INFINITY
+
+pcs resource create clnvrm043-nfsrec03 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm043/clnvrm043_p03' directory='/mnt/storage/clnvrm043_p03' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm043-nfsrec03 rcount=1
+pcs constraint colocation add clnvrm043-nfsrec03 with clnvrm043-vip score=INFINITY
+
+pcs resource create clnvrm043-nfsrec04 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm043/clnvrm043_p04' directory='/mnt/storage/clnvrm043_p04' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm043-nfsrec04 rcount=1
+pcs constraint colocation add clnvrm043-nfsrec04 with clnvrm043-vip score=INFINITY
+
+# Order constraints for Storage
+pcs constraint order start rg-clnvrm043-core then set clnvrm043-nfsrec01 clnvrm043-nfsrec02 clnvrm043-nfsrec03 clnvrm043-nfsrec04 sequential=false
+
+# ---------------------------------------------------------
+# Storage & VIP for clnvrm044
+# ---------------------------------------------------------
+pcs resource create clnvrm044-vip ocf:heartbeat:IPaddr2 ip=10.101.27.46 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource utilization clnvrm044-vip rcount=1
+
+# Core Resource Group
+pcs resource create clnvrm044-nfsapp01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm044/app' directory='/app' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm044-core op monitor interval=60s
+pcs resource create clnvrm044-nfslog01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm044/log' directory='/var/log/thales' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm044-core op monitor interval=60s
+pcs resource create clnvrm044-nfsdat01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm044/data' directory='/data' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm044-core op monitor interval=60s
+pcs resource utilization rg-clnvrm044-core rcount=3
+pcs constraint colocation add rg-clnvrm044-core with clnvrm044-vip score=INFINITY
+
+# CCTV Recording Mounts
+pcs resource create clnvrm044-nfsrec01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm044/clnvrm044_p01' directory='/mnt/storage/clnvrm044_p01' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm044-nfsrec01 rcount=1
+pcs constraint colocation add clnvrm044-nfsrec01 with clnvrm044-vip score=INFINITY
+
+pcs resource create clnvrm044-nfsrec02 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm044/clnvrm044_p02' directory='/mnt/storage/clnvrm044_p02' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm044-nfsrec02 rcount=1
+pcs constraint colocation add clnvrm044-nfsrec02 with clnvrm044-vip score=INFINITY
+
+pcs resource create clnvrm044-nfsrec03 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm044/clnvrm044_p03' directory='/mnt/storage/clnvrm044_p03' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm044-nfsrec03 rcount=1
+pcs constraint colocation add clnvrm044-nfsrec03 with clnvrm044-vip score=INFINITY
+
+pcs resource create clnvrm044-nfsrec04 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm044/clnvrm044_p04' directory='/mnt/storage/clnvrm044_p04' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm044-nfsrec04 rcount=1
+pcs constraint colocation add clnvrm044-nfsrec04 with clnvrm044-vip score=INFINITY
+
+# Order constraints for Storage
+pcs constraint order start rg-clnvrm044-core then set clnvrm044-nfsrec01 clnvrm044-nfsrec02 clnvrm044-nfsrec03 clnvrm044-nfsrec04 sequential=false
+
+# ---------------------------------------------------------
+# Storage & VIP for clnvrm045
+# ---------------------------------------------------------
+pcs resource create clnvrm045-vip ocf:heartbeat:IPaddr2 ip=10.101.27.47 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource utilization clnvrm045-vip rcount=1
+
+# Core Resource Group
+pcs resource create clnvrm045-nfsapp01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm045/app' directory='/app' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm045-core op monitor interval=60s
+pcs resource create clnvrm045-nfslog01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm045/log' directory='/var/log/thales' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm045-core op monitor interval=60s
+pcs resource create clnvrm045-nfsdat01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm045/data' directory='/data' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm045-core op monitor interval=60s
+pcs resource utilization rg-clnvrm045-core rcount=3
+pcs constraint colocation add rg-clnvrm045-core with clnvrm045-vip score=INFINITY
+
+# CCTV Recording Mounts
+pcs resource create clnvrm045-nfsrec01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm045/clnvrm045_p01' directory='/mnt/storage/clnvrm045_p01' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm045-nfsrec01 rcount=1
+pcs constraint colocation add clnvrm045-nfsrec01 with clnvrm045-vip score=INFINITY
+
+pcs resource create clnvrm045-nfsrec02 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm045/clnvrm045_p02' directory='/mnt/storage/clnvrm045_p02' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm045-nfsrec02 rcount=1
+pcs constraint colocation add clnvrm045-nfsrec02 with clnvrm045-vip score=INFINITY
+
+pcs resource create clnvrm045-nfsrec03 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm045/clnvrm045_p03' directory='/mnt/storage/clnvrm045_p03' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm045-nfsrec03 rcount=1
+pcs constraint colocation add clnvrm045-nfsrec03 with clnvrm045-vip score=INFINITY
+
+pcs resource create clnvrm045-nfsrec04 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm045/clnvrm045_p04' directory='/mnt/storage/clnvrm045_p04' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm045-nfsrec04 rcount=1
+pcs constraint colocation add clnvrm045-nfsrec04 with clnvrm045-vip score=INFINITY
+
+# Order constraints for Storage
+pcs constraint order start rg-clnvrm045-core then set clnvrm045-nfsrec01 clnvrm045-nfsrec02 clnvrm045-nfsrec03 clnvrm045-nfsrec04 sequential=false
+
+# ---------------------------------------------------------
+# Storage & VIP for clnvrm046
+# ---------------------------------------------------------
+pcs resource create clnvrm046-vip ocf:heartbeat:IPaddr2 ip=10.101.27.48 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource utilization clnvrm046-vip rcount=1
+
+# Core Resource Group
+pcs resource create clnvrm046-nfsapp01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm046/app' directory='/app' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm046-core op monitor interval=60s
+pcs resource create clnvrm046-nfslog01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm046/log' directory='/var/log/thales' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm046-core op monitor interval=60s
+pcs resource create clnvrm046-nfsdat01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm046/data' directory='/data' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm046-core op monitor interval=60s
+pcs resource utilization rg-clnvrm046-core rcount=3
+pcs constraint colocation add rg-clnvrm046-core with clnvrm046-vip score=INFINITY
+
+# CCTV Recording Mounts
+pcs resource create clnvrm046-nfsrec01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm046/clnvrm046_p01' directory='/mnt/storage/clnvrm046_p01' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm046-nfsrec01 rcount=1
+pcs constraint colocation add clnvrm046-nfsrec01 with clnvrm046-vip score=INFINITY
+
+pcs resource create clnvrm046-nfsrec02 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm046/clnvrm046_p02' directory='/mnt/storage/clnvrm046_p02' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm046-nfsrec02 rcount=1
+pcs constraint colocation add clnvrm046-nfsrec02 with clnvrm046-vip score=INFINITY
+
+pcs resource create clnvrm046-nfsrec03 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm046/clnvrm046_p03' directory='/mnt/storage/clnvrm046_p03' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm046-nfsrec03 rcount=1
+pcs constraint colocation add clnvrm046-nfsrec03 with clnvrm046-vip score=INFINITY
+
+pcs resource create clnvrm046-nfsrec04 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm046/clnvrm046_p04' directory='/mnt/storage/clnvrm046_p04' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm046-nfsrec04 rcount=1
+pcs constraint colocation add clnvrm046-nfsrec04 with clnvrm046-vip score=INFINITY
+
+# Order constraints for Storage
+pcs constraint order start rg-clnvrm046-core then set clnvrm046-nfsrec01 clnvrm046-nfsrec02 clnvrm046-nfsrec03 clnvrm046-nfsrec04 sequential=false
+
+# ---------------------------------------------------------
+# Storage & VIP for clnvrm047
+# ---------------------------------------------------------
+pcs resource create clnvrm047-vip ocf:heartbeat:IPaddr2 ip=10.101.27.49 cidr_netmask=23 nic=vlan126 op monitor interval=60s
+pcs resource utilization clnvrm047-vip rcount=1
+
+# Core Resource Group
+pcs resource create clnvrm047-nfsapp01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm047/app' directory='/app' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm047-core op monitor interval=60s
+pcs resource create clnvrm047-nfslog01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm047/log' directory='/var/log/thales' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm047-core op monitor interval=60s
+pcs resource create clnvrm047-nfsdat01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm047/data' directory='/data' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,nolock" --group rg-clnvrm047-core op monitor interval=60s
+pcs resource utilization rg-clnvrm047-core rcount=3
+pcs constraint colocation add rg-clnvrm047-core with clnvrm047-vip score=INFINITY
+
+# CCTV Recording Mounts
+pcs resource create clnvrm047-nfsrec01 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm047/clnvrm047_p01' directory='/mnt/storage/clnvrm047_p01' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm047-nfsrec01 rcount=1
+pcs constraint colocation add clnvrm047-nfsrec01 with clnvrm047-vip score=INFINITY
+
+pcs resource create clnvrm047-nfsrec02 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm047/clnvrm047_p02' directory='/mnt/storage/clnvrm047_p02' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm047-nfsrec02 rcount=1
+pcs constraint colocation add clnvrm047-nfsrec02 with clnvrm047-vip score=INFINITY
+
+pcs resource create clnvrm047-nfsrec03 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm047/clnvrm047_p03' directory='/mnt/storage/clnvrm047_p03' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm047-nfsrec03 rcount=1
+pcs constraint colocation add clnvrm047-nfsrec03 with clnvrm047-vip score=INFINITY
+
+pcs resource create clnvrm047-nfsrec04 ocf:heartbeat:Filesystem device='ssip.mtr-rec.infstonas001mp.mak.iss:/ifs/infstonas001mp/mtr-rec/clnvrm040/clnvrm047/clnvrm047_p04' directory='/mnt/storage/clnvrm047_p04' fstype='nfs' options="rw,nfsvers=3,tcp,hard,rsize=1048576,wsize=1048576,noatime,nodiratime,nconnect=8,actimeo=3600,nocto,nolock" op monitor interval=60s
+pcs resource utilization clnvrm047-nfsrec04 rcount=1
+pcs constraint colocation add clnvrm047-nfsrec04 with clnvrm047-vip score=INFINITY
+
+# Order constraints for Storage
+pcs constraint order start rg-clnvrm047-core then set clnvrm047-nfsrec01 clnvrm047-nfsrec02 clnvrm047-nfsrec03 clnvrm047-nfsrec04 sequential=false
+

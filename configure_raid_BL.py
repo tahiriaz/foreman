@@ -11,6 +11,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from functions import vars
+from functions.output_log import run_logged_main
+from functions.reporting import (
+    make_summary_row,
+    print_summary_report,
+    write_summary_csv,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -423,7 +429,8 @@ def main():
                 "slot": slot_num,
                 "ip": ip_str,
                 "status": "Skipped",
-                "reason": f"Missing column values: {', '.join(missing)}"
+                "reason": f"Missing column values: {', '.join(missing)}",
+                "time_seconds": 0.0,
             })
             log(slot_num, ip_str, f"SKIPPING: Missing required columns: {missing}")
         else:
@@ -452,17 +459,29 @@ def main():
     # Thread Pool Execution
     with concurrent.futures.ThreadPoolExecutor(max_workers=safe_workers) as executor:
         futures = {
-            executor.submit(process_blade, srv, overwrite_raid, CONTROLLER_TIMEOUT_MINUTES, RAID_TIMEOUT_MINUTES): srv 
+            executor.submit(
+                process_blade,
+                srv,
+                overwrite_raid,
+                CONTROLLER_TIMEOUT_MINUTES,
+                RAID_TIMEOUT_MINUTES,
+            ): (srv, time.time())
             for srv in servers_to_process
         }
-        
+
         for future in concurrent.futures.as_completed(futures):
+            _server_data, submitted_at = futures[future]
             res = future.result()
+            res["time_seconds"] = round(
+                time.time() - submitted_at,
+                2,
+            )
             final_report.append({
                 "slot": res["slot"],
                 "ip": res["ip"],
                 "status": res["status"],
-                "reason": res["reason"]
+                "reason": res["reason"],
+                "time_seconds": res["time_seconds"],
             })
             log(res["slot"], res["ip"], f"FINISHED - Status: {res['status']}")
 
@@ -501,10 +520,58 @@ def main():
         report_path = os.path.join(log_dir, report_filename)
         
         report_df = pd.DataFrame(final_report)
-        report_df = report_df[["slot", "ip", "status", "reason"]]
+        report_df = report_df[["slot", "ip", "status", "time_seconds", "reason"]]
         report_df.to_csv(report_path, index=False)
         
-        print(f"Summary report saved to: {report_path}\n")
+        print(f"Detailed CSV saved to: {report_path}\n")
+
+
+    summary_rows = [
+        make_summary_row(
+            row=(
+                "Slot {:02}".format(item["slot"])
+                if item["slot"] != 999
+                else "Slot ??"
+            ),
+            item_type="RAID Blade",
+            name=target_enclosure,
+            target=item["ip"],
+            status=item["status"],
+            time_seconds=item.get("time_seconds", 0.0),
+            details=item["reason"],
+        )
+        for item in final_report
+    ]
+
+    print_summary_report(
+        summary_rows,
+        title="FINAL RAID BLADE SUMMARY",
+    )
+
+    write_summary_csv(
+        summary_rows,
+        vars.SCRIPT_ARTIFACT_PREFIXES[
+            "configure_raid_BL"
+        ],
+    )
+
+    return (
+        1
+        if any(
+            item["status"] == "Failed"
+            for item in final_report
+        )
+        else 0
+    )
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(
+        run_logged_main(
+            main,
+            log_prefix=vars.SCRIPT_ARTIFACT_PREFIXES[
+                "configure_raid_BL"
+            ],
+            title="BLADE RAID CONFIGURATION",
+        )
+    )
