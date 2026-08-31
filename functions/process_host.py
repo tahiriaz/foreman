@@ -1,6 +1,6 @@
-# BUILD_MARKER: FOREMAN_SERIAL_CREATE_V1_20260827
+# BUILD_MARKER: FOREMAN_SERIAL_CREATE_PXE_V2_20260830
 
-from functions import dns, foreman, vars
+from functions import dns, foreman, physical_boot, vars
 from functions.shared import is_valid
 
 
@@ -33,6 +33,11 @@ def create(host):
         "foreman_success": False,
         "foreman_status": "Failed",
         "foreman_message": "",
+        "foreman_created": False,
+        "boot_required": False,
+        "boot_success": True,
+        "boot_status": "Not Run",
+        "boot_message": "",
         "dns_success": False,
         "dns_status": "Not Run",
         "dns_message": "",
@@ -153,6 +158,7 @@ def create(host):
                             "foreman_success": True,
                             "foreman_status": "Successful",
                             "foreman_message": foreman_message,
+                            "foreman_created": True,
                         })
 
                         print(
@@ -231,7 +237,17 @@ def create(host):
                         return result
 
         # The Foreman creation slot has been released by this point.
-        # DNS is therefore still allowed to run concurrently.
+        #
+        # Only a host CREATED successfully in this run is prepared for PXE.
+        # Exact hosts that already existed in Foreman are intentionally not
+        # rebooted or modified.
+        _process_physical_network_boot(
+            host,
+            result,
+        )
+
+        # DNS remains outside the serialized Foreman creation section, so DNS
+        # and post-Foreman iLO/OA work remain parallel across host workers.
         _process_dns(
             host,
             result,
@@ -296,6 +312,157 @@ def _set_existing_host(
             .format(
                 hostname,
                 foreman_message,
+            )
+        )
+
+
+def _process_physical_network_boot(
+    host,
+    result,
+):
+    """Configure PXE/Network next boot only for a newly-created Foreman host."""
+
+    if not result.get(
+        "foreman_created"
+    ):
+
+        result.update({
+            "boot_required": False,
+            "boot_success": True,
+            "boot_status": "Not Run",
+            "boot_message": (
+                "Not run because Foreman host was not newly created "
+                "in this execution"
+            ),
+        })
+
+        return
+
+    if not (
+        vars.FOREMAN_PHYSICAL_NETWORK_BOOT_ENABLED
+    ):
+
+        result.update({
+            "boot_required": False,
+            "boot_success": True,
+            "boot_status": "Disabled",
+            "boot_message": (
+                "Physical-host next-boot network/PXE "
+                "configuration is disabled in vars.py"
+            ),
+        })
+
+        print(
+            "Physical PXE boot is disabled for {}."
+            .format(
+                result[
+                    "hostname"
+                ]
+            )
+        )
+
+        return
+
+    if not (
+        physical_boot.is_supported_physical_host(
+            host
+        )
+    ):
+
+        result.update({
+            "boot_required": False,
+            "boot_success": True,
+            "boot_status": "Skipped",
+            "boot_message": (
+                "Equipment type is not in the configured "
+                "physical-host PXE type lists"
+            ),
+        })
+
+        return
+
+    result[
+        "boot_required"
+    ] = True
+
+    try:
+
+        boot_result = (
+            physical_boot.configure_next_network_boot(
+                host
+            )
+        )
+
+        boot_success = bool(
+            boot_result.get(
+                "success"
+            )
+        )
+
+        result.update({
+            "boot_success": boot_success,
+            "boot_status": boot_result.get(
+                "status",
+                (
+                    "Successful"
+                    if boot_success
+                    else "Failed"
+                ),
+            ),
+            "boot_message": boot_result.get(
+                "details",
+                "",
+            ),
+        })
+
+        if boot_success:
+
+            print(
+                "Next boot configured for network/PXE on {}: {}"
+                .format(
+                    result[
+                        "hostname"
+                    ],
+                    result[
+                        "boot_message"
+                    ],
+                )
+            )
+
+        else:
+
+            print(
+                "WARNING: Foreman host {} was created, but "
+                "next-boot network/PXE configuration failed: {}"
+                .format(
+                    result[
+                        "hostname"
+                    ],
+                    result[
+                        "boot_message"
+                    ]
+                    or "Unknown PXE error",
+                )
+            )
+
+    except Exception as error:
+
+        result.update({
+            "boot_success": False,
+            "boot_status": "Failed",
+            "boot_message": str(
+                error
+            ),
+        })
+
+        print(
+            "WARNING: Foreman host {} was created, but "
+            "next-boot network/PXE raised an exception: {}"
+            .format(
+                result[
+                    "hostname"
+                ],
+                error,
             )
         )
 
@@ -380,13 +547,17 @@ def _process_dns(host, result):
 
 def _finalize_result(result):
     """Set final physical-host provisioning status."""
-    foreman_text = result[
-        "foreman_status"
-    ]
+
+    foreman_text = (
+        result[
+            "foreman_status"
+        ]
+    )
 
     if result[
         "foreman_message"
     ]:
+
         foreman_text = "{} ({})".format(
             foreman_text,
             result[
@@ -394,46 +565,92 @@ def _finalize_result(result):
             ],
         )
 
-    if result[
-        "dns_success"
-    ]:
-        details = (
-            "Foreman: {}; DNS: Successful"
-            .format(
-                foreman_text
-            )
+    boot_text = (
+        result.get(
+            "boot_status",
+            "Not Run",
+        )
+    )
+
+    if result.get(
+        "boot_message"
+    ):
+
+        boot_text = "{} ({})".format(
+            boot_text,
+            result[
+                "boot_message"
+            ],
         )
 
+    dns_text = (
+        result.get(
+            "dns_status",
+            "Not Run",
+        )
+    )
+
+    if result.get(
+        "dns_message"
+    ):
+
+        dns_text = "{} ({})".format(
+            dns_text,
+            result[
+                "dns_message"
+            ],
+        )
+
+    details = (
+        "Foreman: {}; Boot: {}; DNS: {}"
+        .format(
+            foreman_text,
+            boot_text,
+            dns_text,
+        )
+    )
+
+    failed_components = []
+
+    if not result.get(
+        "dns_success"
+    ):
+
+        failed_components.append(
+            "DNS"
+        )
+
+    if (
+        result.get(
+            "boot_required"
+        )
+        and not result.get(
+            "boot_success"
+        )
+    ):
+
+        failed_components.append(
+            "Boot"
+        )
+
+    if failed_components:
+
         result.update({
-            "success": True,
-            "status": "Successful",
+            "success": False,
+            "status": "Partial",
             "message": details,
             "details": details,
         })
 
         return
 
-    dns_detail = (
-        result[
-            "dns_message"
-        ]
-        or "Unknown DNS error"
-    )
-
-    details = (
-        "Foreman: {}; DNS: Failed - {}"
-        .format(
-            foreman_text,
-            dns_detail,
-        )
-    )
-
     result.update({
-        "success": False,
-        "status": "Partial",
+        "success": True,
+        "status": "Successful",
         "message": details,
         "details": details,
     })
+
 
 
 def create_payload(host):

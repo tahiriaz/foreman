@@ -8,6 +8,8 @@ import openpyxl
 import pandas as pd
 import concurrent.futures
 
+# BUILD_MARKER: RAID_RM_HPE_MR_INITIALIZE_V8_20260830
+
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -23,6 +25,9 @@ from functions.reporting import (
 urllib3.disable_warnings(
     urllib3.exceptions.InsecureRequestWarning
 )
+
+
+SCRIPT_BUILD = "RAID_RM_HPE_MR_INITIALIZE_V8_20260830"
 
 
 # =============================================================================
@@ -74,6 +79,40 @@ REBOOT_DETECTION_POLL_SECONDS = (
 POWER_OFF_TIMEOUT_SECONDS = vars.RAID_RM_POWER_OFF_TIMEOUT_SECONDS
 POWER_ON_INITIAL_WAIT_SECONDS = (
     vars.RAID_RM_POWER_ON_INITIAL_WAIT_SECONDS
+)
+
+BOOT_OVERRIDE_POST_RECOVERY = (
+    vars.RAID_RM_BOOT_OVERRIDE_POST_RECOVERY
+)
+BOOT_OVERRIDE_RETRY_INTERVAL_SECONDS = (
+    vars.RAID_RM_BOOT_OVERRIDE_RETRY_INTERVAL_SECONDS
+)
+BOOT_OVERRIDE_RETRY_TIMEOUT_SECONDS = (
+    vars.RAID_RM_BOOT_OVERRIDE_RETRY_TIMEOUT_SECONDS
+)
+
+DMTF_APPLY_TIMEOUT_SECONDS = (
+    vars.RAID_RM_DMTF_APPLY_TIMEOUT_SECONDS
+)
+DMTF_POLL_INTERVAL_SECONDS = (
+    vars.RAID_RM_DMTF_POLL_INTERVAL_SECONDS
+)
+INITIALIZE_OVERWRITTEN_VOLUME = (
+    vars.RAID_RM_INITIALIZE_OVERWRITTEN_VOLUME
+)
+INITIALIZE_METHOD = vars.RAID_RM_INITIALIZE_METHOD
+INITIALIZE_TYPE = vars.RAID_RM_INITIALIZE_TYPE
+INITIALIZE_ACTION_DISCOVERY_TIMEOUT_SECONDS = (
+    vars.RAID_RM_INITIALIZE_ACTION_DISCOVERY_TIMEOUT_SECONDS
+)
+INITIALIZE_POLL_INTERVAL_SECONDS = (
+    vars.RAID_RM_INITIALIZE_POLL_INTERVAL_SECONDS
+)
+INITIALIZE_TIMEOUT_SECONDS = (
+    vars.RAID_RM_INITIALIZE_TIMEOUT_SECONDS
+)
+INITIALIZE_SETTLE_SECONDS = (
+    vars.RAID_RM_INITIALIZE_SETTLE_SECONDS
 )
 
 REPORT_PREFIX = vars.RAID_RM_REPORT_PREFIX
@@ -837,64 +876,554 @@ class ServerProcessor:
 
 
     # =========================================================================
-    # DMTF STORAGE FALLBACK
+    # DMTF REDFISH STORAGE MODEL
     #
-    # Used primarily for detecting an existing volume if SmartStorage is
-    # unavailable on a newer iLO 5 firmware.
+    # HPE Gen10/Gen10+ controllers can expose the standard DMTF /Storage model
+    # even when the legacy HPE SmartStorage/SmartStorageConfig OEM resources
+    # are unavailable. This implementation uses DMTF Storage for both
+    # inventory and RAID writes when POST capability is advertised.
     # =========================================================================
 
-    def get_dmtf_existing_volumes(self):
+    @staticmethod
+    def _volume_raid_type(volume_data):
+
+        return str(
+            volume_data.get(
+                "RAIDType",
+                volume_data.get(
+                    "Raid",
+                    volume_data.get(
+                        "VolumeType",
+                        "",
+                    ),
+                ),
+            )
+            or ""
+        ).strip()
+
+
+    @staticmethod
+    def _volume_drive_uris(volume_data):
+
+        links = (
+            volume_data.get(
+                "Links",
+                {},
+            )
+            or {}
+        )
+
+        drives = (
+            links.get(
+                "Drives",
+                [],
+            )
+            or []
+        )
+
+        result = []
+
+        for drive in drives:
+
+            uri = (
+                get_member_uri(
+                    drive
+                )
+            )
+
+            if uri:
+
+                result.append(
+                    uri
+                )
+
+        return sorted(
+            set(
+                result
+            ),
+            key=natural_sort_key,
+        )
+
+
+    @staticmethod
+    def _is_real_raid_volume(volume_data):
+
+        raid_type = (
+            ServerProcessor
+            ._volume_raid_type(
+                volume_data
+            )
+            .lower()
+        )
+
+        # RAIDType=None is generally an HBA/JBOD representation, not a
+        # configured RAID logical volume.
+        return raid_type not in (
+            "",
+            "none",
+            "jbod",
+            "nonredundant",
+        )
+
+
+    def _get_collection_response(
+        self,
+        collection_uri,
+    ):
+
+        response = self._request(
+            "GET",
+            collection_uri,
+        )
+
+        if response.status_code == 404:
+
+            return (
+                response,
+                {},
+            )
+
+        response.raise_for_status()
+
+        try:
+
+            data = response.json()
+
+        except Exception:
+
+            data = {}
+
+        return (
+            response,
+            data,
+        )
+
+
+    def _get_dmtf_controller_label(
+        self,
+        storage_uri,
+        storage_data,
+    ):
+
+        labels = []
+
+        for key in (
+            "Name",
+            "Id",
+            "Description",
+        ):
+
+            value = (
+                storage_data.get(
+                    key
+                )
+            )
+
+            if value:
+
+                labels.append(
+                    str(value)
+                )
+
+        storage_controllers = (
+            storage_data.get(
+                "StorageControllers"
+            )
+        )
+
+        if isinstance(
+            storage_controllers,
+            list,
+        ):
+
+            for controller in storage_controllers:
+
+                if not isinstance(
+                    controller,
+                    dict,
+                ):
+
+                    continue
+
+                for key in (
+                    "Name",
+                    "Model",
+                    "Manufacturer",
+                    "FirmwareVersion",
+                ):
+
+                    value = (
+                        controller.get(
+                            key
+                        )
+                    )
+
+                    if value:
+
+                        labels.append(
+                            str(value)
+                        )
+
+        controllers_uri = (
+            get_link_uri(
+                storage_data,
+                "Controllers",
+            )
+        )
+
+        if not controllers_uri:
+
+            controllers_uri = (
+                storage_uri.rstrip("/")
+                + "/Controllers/"
+            )
+
+        try:
+
+            controller_collection = (
+                self._get_json(
+                    controllers_uri
+                )
+            )
+
+            for member in (
+                controller_collection.get(
+                    "Members",
+                    [],
+                )
+                or []
+            ):
+
+                controller_uri = (
+                    get_member_uri(
+                        member
+                    )
+                )
+
+                if not controller_uri:
+
+                    continue
+
+                try:
+
+                    controller_data = (
+                        self._get_json(
+                            controller_uri
+                        )
+                    )
+
+                except Exception:
+
+                    continue
+
+                for key in (
+                    "Name",
+                    "Model",
+                    "Manufacturer",
+                    "FirmwareVersion",
+                ):
+
+                    value = (
+                        controller_data.get(
+                            key
+                        )
+                    )
+
+                    if value:
+
+                        labels.append(
+                            str(value)
+                        )
+
+        except Exception:
+
+            pass
+
+        unique = []
+
+        for value in labels:
+
+            if value not in unique:
+
+                unique.append(
+                    value
+                )
+
+        if unique:
+
+            return " | ".join(
+                unique
+            )
+
+        return storage_uri
+
+
+    def _get_dmtf_drive_uris(
+        self,
+        storage_uri,
+        storage_data,
+    ):
+
+        drive_uris = []
+
+        direct_drives = (
+            storage_data.get(
+                "Drives",
+                [],
+            )
+            or []
+        )
+
+        if isinstance(
+            direct_drives,
+            list,
+        ):
+
+            for drive in direct_drives:
+
+                uri = (
+                    get_member_uri(
+                        drive
+                    )
+                )
+
+                if uri:
+
+                    drive_uris.append(
+                        uri
+                    )
+
+        drives_uri = (
+            get_link_uri(
+                storage_data,
+                "Drives",
+            )
+        )
+
+        if not drives_uri:
+
+            drives_uri = (
+                storage_uri.rstrip("/")
+                + "/Drives/"
+            )
+
+        try:
+
+            drive_collection = (
+                self._get_json(
+                    drives_uri
+                )
+            )
+
+            for member in (
+                drive_collection.get(
+                    "Members",
+                    [],
+                )
+                or []
+            ):
+
+                uri = (
+                    get_member_uri(
+                        member
+                    )
+                )
+
+                if uri:
+
+                    drive_uris.append(
+                        uri
+                    )
+
+        except Exception:
+
+            pass
+
+        return sorted(
+            set(
+                drive_uris
+            ),
+            key=natural_sort_key,
+        )
+
+
+    def _probe_dmtf_volume_write_support(
+        self,
+        volumes_uri,
+        collection_response,
+    ):
+
+        methods = set()
+
+        for value in re.split(
+            r"[\s,]+",
+            str(
+                collection_response.headers.get(
+                    "Allow",
+                    "",
+                )
+            ).upper(),
+        ):
+
+            if value:
+
+                methods.add(
+                    value
+                )
+
+        # Some controller firmware returns Allow only for HEAD or OPTIONS.
+        for method in (
+            "HEAD",
+            "OPTIONS",
+        ):
+
+            try:
+
+                response = (
+                    self._request(
+                        method,
+                        volumes_uri,
+                    )
+                )
+
+                for value in re.split(
+                    r"[\s,]+",
+                    str(
+                        response.headers.get(
+                            "Allow",
+                            "",
+                        )
+                    ).upper(),
+                ):
+
+                    if value:
+
+                        methods.add(
+                            value
+                        )
+
+            except Exception:
+
+                pass
+
+        capabilities_uri = (
+            volumes_uri.rstrip("/")
+            + "/Capabilities"
+        )
+
+        capabilities = None
+        capabilities_status = None
+
+        try:
+
+            response = (
+                self._request(
+                    "GET",
+                    capabilities_uri,
+                )
+            )
+
+            capabilities_status = (
+                response.status_code
+            )
+
+            if response.status_code == 200:
+
+                capabilities = (
+                    response.json()
+                )
+
+        except Exception:
+
+            pass
+
+        # HPE documents Volumes/Capabilities as existing only on writable
+        # storage devices. Either this resource or Allow: POST is sufficient.
+        writable = (
+            capabilities is not None
+            or "POST" in methods
+        )
+
+        return {
+            "writable":
+                writable,
+
+            "methods":
+                sorted(
+                    methods
+                ),
+
+            "capabilities_uri":
+                capabilities_uri,
+
+            "capabilities_status":
+                capabilities_status,
+
+            "capabilities":
+                capabilities,
+        }
+
+
+    def discover_dmtf_storage_targets(
+        self,
+    ):
 
         if not self.system_uri:
+
             self.discover_system()
 
-        storage_uri = (
+        collection_uri = (
             self.system_uri.rstrip("/")
             + "/Storage/"
         )
 
         try:
 
-            response = self._request(
-                "GET",
-                storage_uri,
+            response = (
+                self._request(
+                    "GET",
+                    collection_uri,
+                )
             )
 
             if response.status_code == 404:
+
                 return []
 
             response.raise_for_status()
 
-            storage_members = (
+            members = (
                 response.json()
                 .get(
                     "Members",
                     [],
                 )
+                or []
             )
 
         except Exception:
 
             return []
 
-        volumes = []
+        targets = []
 
-        for member in storage_members:
+        for member in members:
 
-            member_uri = (
+            storage_uri = (
                 get_member_uri(
                     member
                 )
             )
 
-            if not member_uri:
+            if not storage_uri:
+
                 continue
 
             try:
 
                 storage_data = (
                     self._get_json(
-                        member_uri
+                        storage_uri
                     )
                 )
 
@@ -912,14 +1441,17 @@ class ServerProcessor:
             if not volumes_uri:
 
                 volumes_uri = (
-                    member_uri.rstrip("/")
+                    storage_uri.rstrip("/")
                     + "/Volumes/"
                 )
 
             try:
 
-                volume_collection = (
-                    self._get_json(
+                (
+                    volume_response,
+                    volume_collection,
+                ) = (
+                    self._get_collection_response(
                         volumes_uri
                     )
                 )
@@ -928,11 +1460,14 @@ class ServerProcessor:
 
                 continue
 
+            volumes = []
+
             for volume_member in (
                 volume_collection.get(
                     "Members",
                     [],
                 )
+                or []
             ):
 
                 volume_uri = (
@@ -942,6 +1477,7 @@ class ServerProcessor:
                 )
 
                 if not volume_uri:
+
                     continue
 
                 try:
@@ -952,17 +1488,259 @@ class ServerProcessor:
                         )
                     )
 
-                    volume_data[
-                        "_uri"
-                    ] = volume_uri
-
-                    volumes.append(
-                        volume_data
-                    )
-
                 except Exception:
 
-                    pass
+                    continue
+
+                volume_data[
+                    "_uri"
+                ] = volume_uri
+
+                volume_data[
+                    "_storage_uri"
+                ] = storage_uri
+
+                volume_data[
+                    "_volumes_uri"
+                ] = volumes_uri
+
+                volumes.append(
+                    volume_data
+                )
+
+            drive_uris = (
+                self._get_dmtf_drive_uris(
+                    storage_uri,
+                    storage_data,
+                )
+            )
+
+            write_support = (
+                self._probe_dmtf_volume_write_support(
+                    volumes_uri,
+                    volume_response,
+                )
+            )
+
+            controller_label = (
+                self._get_dmtf_controller_label(
+                    storage_uri,
+                    storage_data,
+                )
+            )
+
+            label_upper = (
+                controller_label.upper()
+            )
+
+            is_boot_device = (
+                "NS204" in label_upper
+                or "BOOT DEVICE" in label_upper
+            )
+
+            raid_volumes = [
+                volume
+                for volume in volumes
+                if self._is_real_raid_volume(
+                    volume
+                )
+            ]
+
+            targets.append(
+                {
+                    "storage_uri":
+                        storage_uri,
+
+                    "storage_data":
+                        storage_data,
+
+                    "volumes_uri":
+                        volumes_uri,
+
+                    "volumes":
+                        volumes,
+
+                    "raid_volumes":
+                        raid_volumes,
+
+                    "drive_uris":
+                        drive_uris,
+
+                    "controller_label":
+                        controller_label,
+
+                    "is_boot_device":
+                        is_boot_device,
+
+                    "writable":
+                        write_support[
+                            "writable"
+                        ],
+
+                    "allow_methods":
+                        write_support[
+                            "methods"
+                        ],
+
+                    "capabilities_uri":
+                        write_support[
+                            "capabilities_uri"
+                        ],
+
+                    "capabilities_status":
+                        write_support[
+                            "capabilities_status"
+                        ],
+
+                    "capabilities":
+                        write_support[
+                            "capabilities"
+                        ],
+                }
+            )
+
+        return targets
+
+
+    def log_dmtf_storage_targets(
+        self,
+        targets,
+    ):
+
+        if not targets:
+
+            log(
+                self.row_number,
+                self.ip,
+                (
+                    "DMTF Storage discovery: "
+                    "no /Storage targets found."
+                ),
+            )
+
+            return
+
+        for target in targets:
+
+            log(
+                self.row_number,
+                self.ip,
+                (
+                    "DMTF Storage target: "
+                    f"{target['storage_uri']} | "
+                    f"Controller={target['controller_label']} | "
+                    f"Drives={len(target['drive_uris'])} | "
+                    f"Volumes={len(target['volumes'])} | "
+                    f"RAID volumes={len(target['raid_volumes'])} | "
+                    f"Writable="
+                    f"{'YES' if target['writable'] else 'NO'} | "
+                    f"Allow="
+                    f"{','.join(target['allow_methods']) or 'not advertised'} | "
+                    f"CapabilitiesHTTP="
+                    f"{target['capabilities_status']}"
+                ),
+            )
+
+
+    def select_dmtf_storage_target(
+        self,
+        targets=None,
+    ):
+
+        if targets is None:
+
+            targets = (
+                self.discover_dmtf_storage_targets()
+            )
+
+        if not targets:
+
+            return None
+
+        ranked = []
+
+        for target in targets:
+
+            enough_drives = (
+                len(
+                    target[
+                        "drive_uris"
+                    ]
+                )
+                >= RAID_DATA_DRIVE_COUNT
+            )
+
+            score = (
+                1
+                if target[
+                    "writable"
+                ]
+                else 0,
+
+                1
+                if enough_drives
+                else 0,
+
+                0
+                if target[
+                    "is_boot_device"
+                ]
+                else 1,
+
+                len(
+                    target[
+                        "raid_volumes"
+                    ]
+                ),
+
+                len(
+                    target[
+                        "drive_uris"
+                    ]
+                ),
+            )
+
+            ranked.append(
+                (
+                    score,
+                    target,
+                )
+            )
+
+        ranked.sort(
+            key=lambda item:
+                item[0],
+            reverse=True,
+        )
+
+        return (
+            ranked[
+                0
+            ][
+                1
+            ]
+        )
+
+
+    def get_dmtf_existing_volumes(
+        self,
+    ):
+
+        volumes = []
+
+        for target in (
+            self.discover_dmtf_storage_targets()
+        ):
+
+            for volume in (
+                target[
+                    "raid_volumes"
+                ]
+            ):
+
+                volumes.append(
+                    volume
+                )
 
         return volumes
 
@@ -971,7 +1749,9 @@ class ServerProcessor:
     # EXISTING RAID DETECTION
     # =========================================================================
 
-    def get_existing_logical_drives(self):
+    def get_existing_logical_drives(
+        self,
+    ):
 
         controllers = (
             self.get_smartstorage_inventory()
@@ -995,10 +1775,6 @@ class ServerProcessor:
                 controllers,
             )
 
-        # ---------------------------------------------------------------------
-        # DMTF fallback
-        # ---------------------------------------------------------------------
-
         dmtf_volumes = (
             self.get_dmtf_existing_volumes()
         )
@@ -1016,6 +1792,1510 @@ class ServerProcessor:
             "None",
             controllers,
         )
+
+
+    # =========================================================================
+    # DMTF RAID WRITE
+    # =========================================================================
+
+    @staticmethod
+    def _dmtf_raid_type():
+
+        value = str(
+            RAID_LEVEL
+        ).strip().upper()
+
+        if value == "RAID1":
+
+            return "RAID1"
+
+        return value
+
+
+    def _wait_for_async_operation(
+        self,
+        response,
+        timeout_seconds=30,
+    ):
+
+        if response.status_code != 202:
+
+            return
+
+        location = (
+            response.headers.get(
+                "Location"
+            )
+        )
+
+        if not location:
+
+            return
+
+        deadline = (
+            time.time()
+            + timeout_seconds
+        )
+
+        while time.time() < deadline:
+
+            time.sleep(
+                2
+            )
+
+            try:
+
+                task_response = (
+                    self._request(
+                        "GET",
+                        location,
+                    )
+                )
+
+                if task_response.status_code in (
+                    404,
+                    410,
+                ):
+
+                    return
+
+                task_response.raise_for_status()
+
+                task_data = (
+                    task_response.json()
+                )
+
+                task_state = str(
+                    task_data.get(
+                        "TaskState",
+                        task_data.get(
+                            "JobState",
+                            "",
+                        ),
+                    )
+                ).strip()
+
+                if task_state.lower() in (
+                    "completed",
+                    "completedok",
+                    "success",
+                    "succeeded",
+                ):
+
+                    return
+
+                if task_state.lower() in (
+                    "exception",
+                    "killed",
+                    "cancelled",
+                    "failed",
+                ):
+
+                    raise Exception(
+                        "Redfish storage task failed: "
+                        f"{task_state}; "
+                        f"{str(task_data)[:1000]}"
+                    )
+
+            except requests.exceptions.RequestException:
+
+                continue
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "Warning: asynchronous storage task "
+                "did not reach a terminal state within "
+                f"{timeout_seconds}s. Continuing because "
+                "iLO 5 storage changes may remain pending "
+                "until reboot."
+            ),
+        )
+
+
+    def delete_dmtf_volumes(
+        self,
+        target,
+    ):
+
+        volumes = list(
+            target[
+                "volumes"
+            ]
+        )
+
+        # Use deterministic reverse ordering for volume deletion.
+        volumes.sort(
+            key=lambda item:
+                natural_sort_key(
+                    item.get(
+                        "_uri",
+                        "",
+                    )
+                ),
+            reverse=True,
+        )
+
+        for volume in volumes:
+
+            volume_uri = (
+                volume.get(
+                    "_uri"
+                )
+            )
+
+            if not volume_uri:
+
+                continue
+
+            raid_type = (
+                self._volume_raid_type(
+                    volume
+                )
+                or "Unknown"
+            )
+
+            log(
+                self.row_number,
+                self.ip,
+                (
+                    "Overwrite: deleting existing DMTF "
+                    f"volume {volume_uri} "
+                    f"(RAIDType={raid_type})..."
+                ),
+            )
+
+            response = (
+                self._request(
+                    "DELETE",
+                    volume_uri,
+                    timeout=WRITE_TIMEOUT_SECONDS,
+                )
+            )
+
+            if response.status_code == 404:
+
+                continue
+
+            if response.status_code not in (
+                200,
+                202,
+                204,
+            ):
+
+                raise Exception(
+                    "Failed to delete existing DMTF "
+                    f"volume {volume_uri}. "
+                    f"HTTP {response.status_code}: "
+                    f"{response.text[:1000]}"
+                )
+
+            self._wait_for_async_operation(
+                response
+            )
+
+
+    def stage_dmtf_raid1_configuration(
+        self,
+        target,
+        overwrite_raid,
+    ):
+
+        drive_uris = sorted(
+            target[
+                "drive_uris"
+            ],
+            key=natural_sort_key,
+        )
+
+        if (
+            len(
+                drive_uris
+            )
+            < RAID_DATA_DRIVE_COUNT
+        ):
+
+            raise Exception(
+                f"Only {len(drive_uris)} "
+                "physical drive(s) are visible through "
+                "DMTF Storage; RAID1 requires "
+                f"{RAID_DATA_DRIVE_COUNT}."
+            )
+
+        selected_drives = (
+            drive_uris[
+                :RAID_DATA_DRIVE_COUNT
+            ]
+        )
+
+        if overwrite_raid:
+
+            self.delete_dmtf_volumes(
+                target
+            )
+
+        payload = {
+            "RAIDType":
+                self._dmtf_raid_type(),
+
+            "Links": {
+                "Drives": [
+                    {
+                        "@odata.id":
+                            drive_uri
+                    }
+                    for drive_uri
+                    in selected_drives
+                ]
+            },
+        }
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "Creating RAID1 through DMTF Redfish "
+                f"POST {target['volumes_uri']} "
+                "using drives: "
+                f"{', '.join(selected_drives)}"
+            ),
+        )
+
+        response = self._request(
+            "POST",
+            target[
+                "volumes_uri"
+            ],
+            json=payload,
+            timeout=WRITE_TIMEOUT_SECONDS,
+        )
+
+        if response.status_code not in (
+            200,
+            201,
+            202,
+            204,
+        ):
+
+            raise Exception(
+                "DMTF RAID1 create request failed. "
+                f"HTTP {response.status_code}: "
+                f"{response.text[:1500]}"
+            )
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "DMTF RAID1 create request accepted "
+                f"(HTTP {response.status_code})."
+            ),
+        )
+
+        self._wait_for_async_operation(
+            response
+        )
+
+        return selected_drives
+
+
+    # =========================================================================
+    # DMTF RAID1 APPLY / INITIALIZE / VERIFY
+    # =========================================================================
+
+    @staticmethod
+    def _uri_tail(uri):
+
+        return str(
+            uri
+            or ""
+        ).rstrip("/").split("/")[-1]
+
+
+    def _volume_matches_selected_drives(
+        self,
+        volume_data,
+        selected_drive_uris,
+    ):
+        """
+        Compare drive identities without requiring identical URI namespaces.
+
+        HPE MR firmware can expose the same drive through Storage/Drives and
+        Chassis/Drives URI forms. Comparing the final drive identifier avoids
+        rejecting a correct RAID1 solely because those URI prefixes differ.
+        """
+        expected_ids = {
+            self._uri_tail(
+                uri
+            )
+            for uri
+            in (
+                selected_drive_uris
+                or []
+            )
+            if uri
+        }
+
+        actual_uris = (
+            self._volume_drive_uris(
+                volume_data
+            )
+        )
+
+        actual_ids = {
+            self._uri_tail(
+                uri
+            )
+            for uri
+            in actual_uris
+            if uri
+        }
+
+        # If firmware does not return Links/Drives on the Volume resource,
+        # the selected storage target + RAIDType are still sufficient.
+        if not actual_ids:
+
+            return True
+
+        if not expected_ids:
+
+            return True
+
+        return expected_ids.issubset(
+            actual_ids
+        )
+
+
+    def wait_for_dmtf_raid1_volume(
+        self,
+        storage_uri,
+        selected_drive_uris=None,
+        timeout_seconds=None,
+        context="RAID apply",
+        expected_controller_name=None,
+    ):
+        """
+        Continuously poll for RAID1 on the matching physical controller.
+
+        HPE MR-controller DMTF Storage resource IDs can change across a reboot
+        or storage reconfiguration. The pre-reboot Storage URI is therefore
+        preferred but is not treated as a permanent controller identity.
+
+        Fallback matching uses:
+          1. controller Name/model;
+          2. selected drive IDs;
+          3. a non-boot storage target with enough drives.
+
+        Polling starts immediately and repeats every
+        DMTF_POLL_INTERVAL_SECONDS until RAID1 is visible or the maximum
+        timeout expires.
+        """
+        if timeout_seconds is None:
+            timeout_seconds = DMTF_APPLY_TIMEOUT_SECONDS
+
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        storage_seen = False
+        drives_seen = False
+        last_post_state = None
+        last_power_state = None
+        announced_changed_uris = set()
+
+        expected_uri = str(storage_uri or "").rstrip("/")
+        expected_controller_name = str(
+            expected_controller_name or ""
+        ).strip()
+
+        expected_drive_ids = {
+            self._uri_tail(uri)
+            for uri in (selected_drive_uris or [])
+            if uri
+        }
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "Starting continuous DMTF storage polling for {}. "
+                "Poll interval={}s; maximum wait={}s; "
+                "pre-reboot storage URI={}; controller={}."
+            ).format(
+                context,
+                DMTF_POLL_INTERVAL_SECONDS,
+                timeout_seconds,
+                expected_uri or "unknown",
+                expected_controller_name or "unknown",
+            ),
+        )
+
+        while time.time() < deadline:
+            attempt += 1
+            power_state = "Unknown"
+            post_state = "Unknown"
+
+            try:
+                system_info = self.get_system_info()
+                power_state = str(
+                    system_info.get(
+                        "PowerState",
+                        "Unknown",
+                    )
+                )
+                post_state = str(
+                    system_info.get(
+                        "PostState",
+                        "Unknown",
+                    )
+                )
+                last_power_state = power_state
+                last_post_state = post_state
+            except Exception:
+                pass
+
+            try:
+                targets = self.discover_dmtf_storage_targets()
+
+                exact_target = None
+                controller_matches = []
+                drive_matches = []
+                fallback_targets = []
+
+                for target in targets:
+                    current_uri = str(
+                        target.get(
+                            "storage_uri",
+                            "",
+                        )
+                    ).rstrip("/")
+
+                    storage_data = (
+                        target.get(
+                            "storage_data",
+                            {},
+                        )
+                        or {}
+                    )
+                    current_name = str(
+                        storage_data.get(
+                            "Name",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                    current_drive_ids = {
+                        self._uri_tail(uri)
+                        for uri in (
+                            target.get(
+                                "drive_uris",
+                                [],
+                            )
+                            or []
+                        )
+                        if uri
+                    }
+
+                    if (
+                        expected_uri
+                        and current_uri == expected_uri
+                    ):
+                        exact_target = target
+
+                    if (
+                        expected_controller_name
+                        and current_name.lower()
+                        == expected_controller_name.lower()
+                    ):
+                        controller_matches.append(target)
+
+                    if (
+                        expected_drive_ids
+                        and expected_drive_ids.issubset(
+                            current_drive_ids
+                        )
+                    ):
+                        drive_matches.append(target)
+
+                    if (
+                        not target.get(
+                            "is_boot_device",
+                            False,
+                        )
+                        and len(
+                            target.get(
+                                "drive_uris",
+                                [],
+                            )
+                            or []
+                        ) >= RAID_DATA_DRIVE_COUNT
+                    ):
+                        fallback_targets.append(target)
+
+                candidates = []
+                candidate_uris = set()
+
+                def add_candidate(target):
+                    if not target:
+                        return
+
+                    uri = str(
+                        target.get(
+                            "storage_uri",
+                            "",
+                        )
+                    ).rstrip("/")
+
+                    if uri in candidate_uris:
+                        return
+
+                    candidate_uris.add(uri)
+                    candidates.append(target)
+
+                add_candidate(exact_target)
+
+                for target in controller_matches:
+                    add_candidate(target)
+
+                for target in drive_matches:
+                    add_candidate(target)
+
+                for target in fallback_targets:
+                    add_candidate(target)
+
+                if not candidates:
+                    if attempt == 1 or attempt % 6 == 0:
+                        available = [
+                            "{} ({})".format(
+                                target.get(
+                                    "storage_uri",
+                                    "unknown",
+                                ),
+                                (
+                                    target.get(
+                                        "storage_data",
+                                        {},
+                                    )
+                                    or {}
+                                ).get(
+                                    "Name",
+                                    "unknown",
+                                ),
+                            )
+                            for target in targets
+                        ]
+
+                        log(
+                            self.row_number,
+                            self.ip,
+                            (
+                                "Polling {}: no suitable DMTF "
+                                "storage target is currently visible. "
+                                "PowerState={}; PostState={}; "
+                                "Available={}; Attempt={}."
+                            ).format(
+                                context,
+                                power_state,
+                                post_state,
+                                available or "none",
+                                attempt,
+                            ),
+                        )
+
+                for target in candidates:
+                    current_uri = str(
+                        target.get(
+                            "storage_uri",
+                            "",
+                        )
+                    ).rstrip("/")
+
+                    storage_data = (
+                        target.get(
+                            "storage_data",
+                            {},
+                        )
+                        or {}
+                    )
+                    current_name = str(
+                        storage_data.get(
+                            "Name",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                    if (
+                        expected_uri
+                        and current_uri != expected_uri
+                        and current_uri
+                        not in announced_changed_uris
+                    ):
+                        announced_changed_uris.add(
+                            current_uri
+                        )
+
+                        log(
+                            self.row_number,
+                            self.ip,
+                            (
+                                "DMTF Storage resource URI changed "
+                                "after reboot/reconfiguration: "
+                                "{} -> {}. Continuing by matching "
+                                "controller '{}'."
+                            ).format(
+                                expected_uri,
+                                current_uri,
+                                (
+                                    current_name
+                                    or expected_controller_name
+                                    or "unknown"
+                                ),
+                            ),
+                        )
+
+                    if not storage_seen:
+                        storage_seen = True
+
+                        log(
+                            self.row_number,
+                            self.ip,
+                            (
+                                "Matching DMTF storage controller "
+                                "is reachable during boot. "
+                                "URI={}; Controller={}; "
+                                "PowerState={}; PostState={}; "
+                                "Drives={}; Volumes={}."
+                            ).format(
+                                current_uri,
+                                current_name or "unknown",
+                                power_state,
+                                post_state,
+                                len(
+                                    target.get(
+                                        "drive_uris",
+                                        [],
+                                    )
+                                    or []
+                                ),
+                                len(
+                                    target.get(
+                                        "volumes",
+                                        [],
+                                    )
+                                    or []
+                                ),
+                            ),
+                        )
+
+                    if (
+                        len(
+                            target.get(
+                                "drive_uris",
+                                [],
+                            )
+                            or []
+                        ) >= RAID_DATA_DRIVE_COUNT
+                        and not drives_seen
+                    ):
+                        drives_seen = True
+
+                        log(
+                            self.row_number,
+                            self.ip,
+                            (
+                                "Required physical drives are "
+                                "visible through DMTF Storage "
+                                "during the pre-OS/System Utilities "
+                                "phase: {}"
+                            ).format(
+                                target.get(
+                                    "drive_uris",
+                                    [],
+                                )
+                            ),
+                        )
+
+                    volume_summaries = []
+
+                    for volume in (
+                        target.get(
+                            "volumes",
+                            [],
+                        )
+                        or []
+                    ):
+                        raid_value = (
+                            self._volume_raid_type(
+                                volume
+                            )
+                        )
+
+                        volume_summaries.append(
+                            "{}:{}".format(
+                                volume.get(
+                                    "_uri",
+                                    "unknown",
+                                ),
+                                raid_value or "None",
+                            )
+                        )
+
+                        if (
+                            str(raid_value)
+                            .strip()
+                            .upper()
+                            != "RAID1"
+                        ):
+                            continue
+
+                        if not (
+                            self._volume_matches_selected_drives(
+                                volume,
+                                selected_drive_uris,
+                            )
+                        ):
+                            continue
+
+                        log(
+                            self.row_number,
+                            self.ip,
+                            (
+                                "RAID1 volume is visible on the "
+                                "matching DMTF storage controller. "
+                                "StorageURI={}; PowerState={}; "
+                                "PostState={}; Volume={}"
+                            ).format(
+                                current_uri,
+                                power_state,
+                                post_state,
+                                volume.get(
+                                    "_uri",
+                                    "unknown",
+                                ),
+                            ),
+                        )
+
+                        return volume
+
+                    if attempt == 1 or attempt % 6 == 0:
+                        log(
+                            self.row_number,
+                            self.ip,
+                            (
+                                "Polling {}: StorageURI={}; "
+                                "Controller={}; PowerState={}; "
+                                "PostState={}; Drives={}; "
+                                "Volumes={}; Attempt={}."
+                            ).format(
+                                context,
+                                current_uri,
+                                current_name or "unknown",
+                                power_state,
+                                post_state,
+                                len(
+                                    target.get(
+                                        "drive_uris",
+                                        [],
+                                    )
+                                    or []
+                                ),
+                                (
+                                    ", ".join(
+                                        volume_summaries
+                                    )
+                                    or "none"
+                                ),
+                                attempt,
+                            ),
+                        )
+
+            except Exception as exc:
+                if attempt == 1 or attempt % 6 == 0:
+                    log(
+                        self.row_number,
+                        self.ip,
+                        (
+                            "Polling {}: temporary Redfish "
+                            "storage error: {}. "
+                            "PowerState={}; PostState={}; "
+                            "Attempt={}."
+                        ).format(
+                            context,
+                            exc,
+                            power_state,
+                            post_state,
+                            attempt,
+                        ),
+                    )
+
+            remaining = deadline - time.time()
+
+            if remaining <= 0:
+                break
+
+            time.sleep(
+                min(
+                    DMTF_POLL_INTERVAL_SECONDS,
+                    remaining,
+                )
+            )
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "Timed out waiting for RAID1 during {} "
+                "after {}s. StorageSeen={}; "
+                "DrivesSeen={}; LastPowerState={}; "
+                "LastPostState={}."
+            ).format(
+                context,
+                timeout_seconds,
+                (
+                    "YES"
+                    if storage_seen
+                    else "NO"
+                ),
+                (
+                    "YES"
+                    if drives_seen
+                    else "NO"
+                ),
+                last_power_state or "Unknown",
+                last_post_state or "Unknown",
+            ),
+        )
+
+        return None
+
+
+    def _get_volume_initialize_action(
+        self,
+        volume_data,
+    ):
+
+        actions = (
+            volume_data.get(
+                "Actions",
+                {},
+            )
+            or {}
+        )
+
+        for action_name, action_data in actions.items():
+
+            if (
+                "volume.initialize"
+                in str(
+                    action_name
+                ).lower()
+                and isinstance(
+                    action_data,
+                    dict,
+                )
+            ):
+
+                return (
+                    action_name,
+                    action_data,
+                )
+
+        return (
+            None,
+            None,
+        )
+
+
+    def wait_for_volume_initialize_action(
+        self,
+        volume_uri,
+        timeout_seconds,
+    ):
+        """
+        Wait until the newly-created MR volume advertises #Volume.Initialize.
+
+        A newly exposed RDE volume can become visible before all action
+        metadata is ready. Do not construct an action URI when the resource
+        does not advertise the action; wait for the supported target instead.
+        """
+        deadline = (
+            time.time()
+            + timeout_seconds
+        )
+
+        attempt = 0
+
+        while time.time() < deadline:
+
+            attempt += 1
+
+            try:
+
+                volume_data = (
+                    self._get_json(
+                        volume_uri
+                    )
+                )
+
+                volume_data[
+                    "_uri"
+                ] = volume_uri
+
+                (
+                    action_name,
+                    action_data,
+                ) = (
+                    self._get_volume_initialize_action(
+                        volume_data
+                    )
+                )
+
+                if (
+                    action_name
+                    and action_data
+                    and action_data.get(
+                        "target"
+                    )
+                ):
+
+                    log(
+                        self.row_number,
+                        self.ip,
+                        (
+                            "Volume.Initialize action is "
+                            "advertised by the MR controller: "
+                            f"{action_data.get('target')}"
+                        ),
+                    )
+
+                    return (
+                        volume_data,
+                        action_name,
+                        action_data,
+                    )
+
+                if (
+                    attempt == 1
+                    or attempt % 6 == 0
+                ):
+
+                    advertised_actions = sorted(
+                        (
+                            volume_data.get(
+                                "Actions",
+                                {},
+                            )
+                            or {}
+                        ).keys()
+                    )
+
+                    log(
+                        self.row_number,
+                        self.ip,
+                        (
+                            "Waiting for Volume.Initialize "
+                            "action metadata. AdvertisedActions="
+                            f"{advertised_actions or 'none'}; "
+                            f"Attempt={attempt}."
+                        ),
+                    )
+
+            except Exception as exc:
+
+                if (
+                    attempt == 1
+                    or attempt % 6 == 0
+                ):
+
+                    log(
+                        self.row_number,
+                        self.ip,
+                        (
+                            "Waiting for Volume.Initialize "
+                            f"action metadata: {exc}; "
+                            f"Attempt={attempt}."
+                        ),
+                    )
+
+            remaining = (
+                deadline
+                - time.time()
+            )
+
+            if remaining <= 0:
+
+                break
+
+            time.sleep(
+                min(
+                    INITIALIZE_POLL_INTERVAL_SECONDS,
+                    remaining,
+                )
+            )
+
+        return (
+            None,
+            None,
+            None,
+        )
+
+
+    @staticmethod
+    def _initialization_operations(
+        volume_data,
+    ):
+
+        operations = (
+            volume_data.get(
+                "Operations",
+                [],
+            )
+            or []
+        )
+
+        active = []
+
+        for operation in operations:
+
+            if not isinstance(
+                operation,
+                dict,
+            ):
+
+                continue
+
+            name = str(
+                operation.get(
+                    "OperationName",
+                    operation.get(
+                        "Operation",
+                        "",
+                    ),
+                )
+                or ""
+            ).strip()
+
+            if (
+                "initializ"
+                in name.lower()
+            ):
+
+                active.append(
+                    operation
+                )
+
+        return active
+
+
+    def wait_for_volume_initialization(
+        self,
+        volume_uri,
+        timeout_seconds,
+    ):
+        """
+        Poll HPE MR Volume.Operations until initialization completes.
+
+        HPE documents that the action can return before the operation itself
+        has completed. Progress is exposed through Operations and
+        PercentageComplete.
+        """
+        deadline = (
+            time.time()
+            + timeout_seconds
+        )
+
+        attempt = 0
+        saw_initialization = False
+
+        while time.time() < deadline:
+
+            attempt += 1
+
+            volume_data = (
+                self._get_json(
+                    volume_uri
+                )
+            )
+
+            volume_data[
+                "_uri"
+            ] = volume_uri
+
+            raid_value = (
+                self._volume_raid_type(
+                    volume_data
+                )
+            )
+
+            if (
+                str(
+                    raid_value
+                ).strip().upper()
+                != "RAID1"
+            ):
+
+                raise Exception(
+                    "RAIDType changed during initialization: "
+                    f"{raid_value}"
+                )
+
+            active_operations = (
+                self._initialization_operations(
+                    volume_data
+                )
+            )
+
+            initialize_method = str(
+                volume_data.get(
+                    "InitializeMethod",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            status = (
+                volume_data.get(
+                    "Status",
+                    {},
+                )
+                or {}
+            )
+
+            state = str(
+                status.get(
+                    "State",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if active_operations:
+
+                saw_initialization = True
+
+                if (
+                    attempt == 1
+                    or attempt % 6 == 0
+                ):
+
+                    progress_parts = []
+
+                    for operation in active_operations:
+
+                        name = str(
+                            operation.get(
+                                "OperationName",
+                                operation.get(
+                                    "Operation",
+                                    "Initializing",
+                                ),
+                            )
+                            or "Initializing"
+                        )
+
+                        percentage = (
+                            operation.get(
+                                "PercentageComplete"
+                            )
+                        )
+
+                        if percentage is None:
+
+                            progress_parts.append(
+                                name
+                            )
+
+                        else:
+
+                            progress_parts.append(
+                                "{}={}%".format(
+                                    name,
+                                    percentage,
+                                )
+                            )
+
+                    log(
+                        self.row_number,
+                        self.ip,
+                        (
+                            "RAID1 initialization in progress: "
+                            f"{', '.join(progress_parts)}; "
+                            f"InitializeMethod="
+                            f"{initialize_method or 'unknown'}; "
+                            f"State={state or 'unknown'}."
+                        ),
+                    )
+
+            else:
+
+                log(
+                    self.row_number,
+                    self.ip,
+                    (
+                        "RAID1 initialization completed. "
+                        f"InitializeMethod="
+                        f"{initialize_method or 'not reported'}; "
+                        f"State={state or 'unknown'}; "
+                        f"OperationSeen="
+                        f"{'YES' if saw_initialization else 'NO (completed quickly)'}."
+                    ),
+                )
+
+                return volume_data
+
+            remaining = (
+                deadline
+                - time.time()
+            )
+
+            if remaining <= 0:
+
+                break
+
+            time.sleep(
+                min(
+                    INITIALIZE_POLL_INTERVAL_SECONDS,
+                    remaining,
+                )
+            )
+
+        raise Exception(
+            "RAID1 initialization did not complete within "
+            f"{timeout_seconds}s."
+        )
+
+
+    def initialize_dmtf_volume(
+        self,
+        volume_data,
+        initialize_type,
+    ):
+        """
+        Initialize an HPE MR RAID1 using the action advertised by the volume.
+
+        HPE MR quick initialization:
+            InitializeMethod = Foreground
+            InitializeType   = Fast
+
+        HPE MR full initialization:
+            InitializeMethod = Foreground
+            InitializeType   = Slow
+        """
+        volume_uri = (
+            volume_data.get(
+                "_uri"
+            )
+            or volume_data.get(
+                "@odata.id"
+            )
+        )
+
+        if not volume_uri:
+
+            raise Exception(
+                "Cannot initialize DMTF volume: "
+                "volume URI is missing."
+            )
+
+        (
+            current_volume,
+            action_name,
+            initialize_action,
+        ) = (
+            self.wait_for_volume_initialize_action(
+                volume_uri,
+                INITIALIZE_ACTION_DISCOVERY_TIMEOUT_SECONDS,
+            )
+        )
+
+        if not initialize_action:
+
+            raise Exception(
+                "HPE MR volume does not advertise "
+                "#Volume.Initialize within "
+                f"{INITIALIZE_ACTION_DISCOVERY_TIMEOUT_SECONDS}s. "
+                "Initialization was requested by policy, so "
+                "the RAID is not considered successfully prepared."
+            )
+
+        action_uri = (
+            initialize_action.get(
+                "target"
+            )
+        )
+
+        allowed_types = (
+            initialize_action.get(
+                "InitializeType@Redfish.AllowableValues",
+                [],
+            )
+            or []
+        )
+
+        allowed_methods = (
+            initialize_action.get(
+                "InitializeMethod@Redfish.AllowableValues",
+                [],
+            )
+            or []
+        )
+
+        requested_type = str(
+            initialize_type
+            or "Fast"
+        ).strip()
+
+        requested_method = str(
+            INITIALIZE_METHOD
+            or "Foreground"
+        ).strip()
+
+        chosen_type = requested_type
+
+        if allowed_types:
+
+            allowed_type_map = {
+                str(
+                    value
+                ).strip().lower():
+                    str(
+                        value
+                    ).strip()
+                for value
+                in allowed_types
+            }
+
+            chosen_type = (
+                allowed_type_map.get(
+                    requested_type.lower()
+                )
+            )
+
+            if chosen_type is None:
+
+                raise Exception(
+                    "Requested initialization type "
+                    f"'{requested_type}' is not supported. "
+                    "Controller reports allowable values: "
+                    f"{allowed_types}"
+                )
+
+        chosen_method = requested_method
+
+        if allowed_methods:
+
+            allowed_method_map = {
+                str(
+                    value
+                ).strip().lower():
+                    str(
+                        value
+                    ).strip()
+                for value
+                in allowed_methods
+            }
+
+            chosen_method = (
+                allowed_method_map.get(
+                    requested_method.lower()
+                )
+            )
+
+            if chosen_method is None:
+
+                raise Exception(
+                    "Requested initialization method "
+                    f"'{requested_method}' is not supported. "
+                    "Controller reports allowable values: "
+                    f"{allowed_methods}"
+                )
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "Initializing RAID1 volume "
+                f"{volume_uri} using HPE MR Redfish action "
+                f"{action_uri}. "
+                f"InitializeMethod={chosen_method}; "
+                f"InitializeType={chosen_type}; "
+                f"AllowableMethods="
+                f"{allowed_methods or 'not advertised'}; "
+                f"AllowableTypes="
+                f"{allowed_types or 'not advertised'}."
+            ),
+        )
+
+        payload = {
+            "InitializeMethod":
+                chosen_method,
+
+            "InitializeType":
+                chosen_type,
+        }
+
+        response = (
+            self._request(
+                "POST",
+                action_uri,
+                json=payload,
+                timeout=WRITE_TIMEOUT_SECONDS,
+            )
+        )
+
+        if response.status_code not in (
+            200,
+            201,
+            202,
+            204,
+        ):
+
+            raise Exception(
+                "Volume initialization request failed. "
+                f"HTTP {response.status_code}: "
+                f"{response.text[:1500]}"
+            )
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "Volume initialization request accepted "
+                f"(HTTP {response.status_code}) with "
+                f"InitializeMethod={chosen_method}, "
+                f"InitializeType={chosen_type}."
+            ),
+        )
+
+        self._wait_for_async_operation(
+            response,
+            timeout_seconds=(
+                INITIALIZE_TIMEOUT_SECONDS
+            ),
+        )
+
+        initialized_volume = (
+            self.wait_for_volume_initialization(
+                volume_uri,
+                INITIALIZE_TIMEOUT_SECONDS,
+            )
+        )
+
+        time.sleep(
+            INITIALIZE_SETTLE_SECONDS
+        )
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "RAID1 volume initialization verified. "
+                "Old boot/partition metadata has been cleared."
+            ),
+        )
+
+        return initialized_volume
 
 
     # =========================================================================
@@ -1309,6 +3589,162 @@ class ServerProcessor:
     # BOOT TARGET
     # =========================================================================
 
+    @staticmethod
+    def _unable_to_modify_during_post(
+        response,
+    ):
+
+        try:
+            response_text = str(
+                response.text
+                or ""
+            )
+        except Exception:
+            response_text = ""
+
+        return (
+            "UnableToModifyDuringSystemPOST"
+            in response_text
+        )
+
+
+    def wait_for_power_state(
+        self,
+        desired_state,
+        timeout_seconds,
+        poll_seconds=5,
+    ):
+
+        desired = str(
+            desired_state
+        ).strip().lower()
+
+        deadline = (
+            time.time()
+            + timeout_seconds
+        )
+
+        while time.time() < deadline:
+
+            try:
+                current = str(
+                    self.get_system_info()
+                    .get(
+                        "PowerState",
+                        "Unknown",
+                    )
+                ).strip()
+
+                if current.lower() == desired:
+                    return True
+
+            except Exception:
+                pass
+
+            time.sleep(
+                poll_seconds
+            )
+
+        return False
+
+
+    def force_power_off(
+        self,
+        reason=None,
+    ):
+
+        try:
+            current_state = str(
+                self.get_system_info()
+                .get(
+                    "PowerState",
+                    "Unknown",
+                )
+            )
+        except Exception:
+            current_state = "Unknown"
+
+        if current_state.lower() == "off":
+
+            log(
+                self.row_number,
+                self.ip,
+                "Server is already powered off.",
+            )
+
+            return True
+
+        if reason:
+
+            log(
+                self.row_number,
+                self.ip,
+                reason,
+            )
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "Forcing server power OFF so iLO boot "
+                "settings can be modified safely..."
+            ),
+        )
+
+        self.reset_server(
+            "ForceOff"
+        )
+
+        powered_off = (
+            self.wait_for_power_state(
+                "Off",
+                POWER_OFF_TIMEOUT_SECONDS,
+                poll_seconds=5,
+            )
+        )
+
+        if not powered_off:
+
+            raise Exception(
+                "Server did not reach PowerState=Off "
+                f"within {POWER_OFF_TIMEOUT_SECONDS}s."
+            )
+
+        log(
+            self.row_number,
+            self.ip,
+            "Server reached PowerState=Off.",
+        )
+
+        # Give iLO a moment to release POST-only configuration locks.
+        time.sleep(
+            2
+        )
+
+        return True
+
+
+    def _patch_system_utilities_boot_override(
+        self,
+        target,
+    ):
+
+        payload = {
+            "Boot": {
+                "BootSourceOverrideTarget":
+                    target,
+                "BootSourceOverrideEnabled":
+                    "Once",
+            }
+        }
+
+        return self._request(
+            "PATCH",
+            self.system_uri,
+            json=payload,
+        )
+
+
     def set_boot_to_system_utilities(self):
 
         info = (
@@ -1337,36 +3773,19 @@ class ServerProcessor:
             or []
         )
 
-        # HPE System Utilities is normally reached through BiosSetup.
-        # If this firmware only advertises Utilities, use that.
         if (
             not allowable
             or "BiosSetup" in allowable
         ):
-
             target = "BiosSetup"
-
         elif "Utilities" in allowable:
-
             target = "Utilities"
-
         else:
-
             raise Exception(
                 "iLO does not advertise BiosSetup or "
                 f"Utilities boot target. "
                 f"Allowable targets: {allowable}"
             )
-
-        payload = {
-            "Boot": {
-                "BootSourceOverrideTarget":
-                    target,
-
-                "BootSourceOverrideEnabled":
-                    "Once",
-            }
-        }
 
         log(
             self.row_number,
@@ -1377,13 +3796,21 @@ class ServerProcessor:
             ),
         )
 
-        response = self._request(
-            "PATCH",
-            self.system_uri,
-            json=payload,
+        response = (
+            self._patch_system_utilities_boot_override(
+                target
+            )
         )
 
-        if response.status_code >= 400:
+        if response.status_code < 400:
+            return target
+
+        if not (
+            BOOT_OVERRIDE_POST_RECOVERY
+            and self._unable_to_modify_during_post(
+                response
+            )
+        ):
 
             raise Exception(
                 "Failed to set System Utilities "
@@ -1392,7 +3819,119 @@ class ServerProcessor:
                 f"{response.text[:500]}"
             )
 
-        return target
+        try:
+            current_info = self.get_system_info()
+            current_power = str(
+                current_info.get(
+                    "PowerState",
+                    "Unknown",
+                )
+            )
+            current_post = str(
+                current_info.get(
+                    "PostState",
+                    "Unknown",
+                )
+            )
+        except Exception:
+            current_power = "Unknown"
+            current_post = "Unknown"
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "iLO rejected the System Utilities boot "
+                "override because the server is in POST "
+                "(UnableToModifyDuringSystemPOST). "
+                f"PowerState={current_power}; "
+                f"PostState={current_post}."
+            ),
+        )
+
+        self.force_power_off(
+            reason=(
+                "POST-safe recovery: powering the server "
+                "off before retrying the BiosSetup boot override."
+            ),
+        )
+
+        retry_deadline = (
+            time.time()
+            + BOOT_OVERRIDE_RETRY_TIMEOUT_SECONDS
+        )
+
+        attempt = 0
+        last_response = response
+
+        while time.time() < retry_deadline:
+
+            attempt += 1
+
+            log(
+                self.row_number,
+                self.ip,
+                (
+                    "Retrying System Utilities boot override "
+                    f"while server is OFF (Attempt {attempt})..."
+                ),
+            )
+
+            last_response = (
+                self._patch_system_utilities_boot_override(
+                    target
+                )
+            )
+
+            if last_response.status_code < 400:
+
+                log(
+                    self.row_number,
+                    self.ip,
+                    (
+                        "System Utilities boot override "
+                        "accepted successfully while server "
+                        "is powered off."
+                    ),
+                )
+
+                return target
+
+            if not self._unable_to_modify_during_post(
+                last_response
+            ):
+
+                raise Exception(
+                    "Failed to set System Utilities "
+                    "boot override after POST-safe power-off. "
+                    f"HTTP {last_response.status_code}: "
+                    f"{last_response.text[:500]}"
+                )
+
+            remaining = (
+                retry_deadline
+                - time.time()
+            )
+
+            if remaining <= 0:
+                break
+
+            time.sleep(
+                min(
+                    BOOT_OVERRIDE_RETRY_INTERVAL_SECONDS,
+                    remaining,
+                )
+            )
+
+        raise Exception(
+            "System Utilities boot override remained "
+            "locked by POST after powering the server off "
+            f"and retrying for "
+            f"{BOOT_OVERRIDE_RETRY_TIMEOUT_SECONDS}s. "
+            f"Last response: HTTP "
+            f"{last_response.status_code}: "
+            f"{last_response.text[:500]}"
+        )
 
 
     def set_boot_to_normal(self):
@@ -1633,57 +4172,12 @@ class ServerProcessor:
         )
 
         try:
-
-            self.reset_server(
-                "ForceOff"
-            )
-
+            self.force_power_off()
         except Exception as exc:
-
             raise Exception(
                 "ForceRestart did not initiate POST "
                 "and ForceOff fallback failed: "
                 f"{exc}"
-            )
-
-        deadline = (
-            time.time()
-            + POWER_OFF_TIMEOUT_SECONDS
-        )
-
-        powered_off = False
-
-        while time.time() < deadline:
-
-            time.sleep(5)
-
-            try:
-
-                state = (
-                    self.get_system_info()
-                    .get(
-                        "PowerState",
-                        "Unknown",
-                    )
-                )
-
-                if (
-                    str(state).lower()
-                    == "off"
-                ):
-
-                    powered_off = True
-                    break
-
-            except Exception:
-
-                pass
-
-        if not powered_off:
-
-            raise Exception(
-                "Server did not reach PowerState=Off "
-                f"within {POWER_OFF_TIMEOUT_SECONDS}s."
             )
 
         log(
@@ -1801,7 +4295,9 @@ class ServerProcessor:
     # NORMAL REBOOT
     # =========================================================================
 
-    def reboot_normal(self):
+    def reboot_normal(
+        self,
+    ):
 
         self.set_boot_to_normal()
 
@@ -1809,15 +4305,30 @@ class ServerProcessor:
             self.get_system_info()
         )
 
+        power_state = str(
+            info.get(
+                "PowerState",
+                "Unknown",
+            )
+        )
+
+        initial_post_state = str(
+            info.get(
+                "PostState",
+                "Unknown",
+            )
+        )
+
         if (
-            str(
-                info.get(
-                    "PowerState",
-                    "Unknown",
-                )
-            ).lower()
+            power_state.lower()
             == "off"
         ):
+
+            log(
+                self.row_number,
+                self.ip,
+                "Server is OFF. Powering on...",
+            )
 
             self.reset_server(
                 "On"
@@ -1831,9 +4342,226 @@ class ServerProcessor:
                 "ForceRestart"
             )
 
-        except Exception:
+        except Exception as exc:
+
+            log(
+                self.row_number,
+                self.ip,
+                (
+                    "Normal ForceRestart failed: "
+                    f"{exc}. Falling back to "
+                    "ForceOff -> On."
+                ),
+            )
 
             self.force_power_cycle()
+
+            return
+
+        reboot_detected = (
+            self.wait_for_post_transition(
+                initial_post_state,
+                REBOOT_DETECTION_TIMEOUT_SECONDS,
+            )
+        )
+
+        if not reboot_detected:
+
+            self.force_power_cycle()
+
+
+    def wait_for_post_complete(
+        self,
+        timeout_seconds,
+    ):
+
+        deadline = (
+            time.time()
+            + timeout_seconds
+        )
+
+        saw_post_activity = False
+
+        while time.time() < deadline:
+
+            time.sleep(
+                REBOOT_DETECTION_POLL_SECONDS
+            )
+
+            try:
+
+                info = (
+                    self.get_system_info()
+                )
+
+                power_state = str(
+                    info.get(
+                        "PowerState",
+                        "Unknown",
+                    )
+                )
+
+                post_state = str(
+                    info.get(
+                        "PostState",
+                        "Unknown",
+                    )
+                )
+
+                if post_state not in (
+                    "FinishedPost",
+                    "Unknown",
+                    "",
+                ):
+
+                    saw_post_activity = True
+
+                if (
+                    power_state.lower()
+                    == "on"
+                    and post_state
+                    == "FinishedPost"
+                    and saw_post_activity
+                ):
+
+                    log(
+                        self.row_number,
+                        self.ip,
+                        (
+                            "Server POST completed "
+                            "after RAID configuration reboot."
+                        ),
+                    )
+
+                    return True
+
+            except Exception:
+
+                pass
+
+        log(
+            self.row_number,
+            self.ip,
+            (
+                "Warning: POST completion was not "
+                f"confirmed within {timeout_seconds}s. "
+                "Continuing with RAID inventory verification."
+            ),
+        )
+
+        return False
+
+
+    # =========================================================================
+    # WAIT FOR A WRITABLE RAID INTERFACE
+    # =========================================================================
+
+    def wait_for_raid_write_interface(
+        self,
+        timeout_minutes,
+    ):
+
+        max_attempts = max(
+            1,
+            int(
+                (
+                    timeout_minutes
+                    * 60
+                )
+                / POLL_INTERVAL_SECONDS
+            ),
+        )
+
+        for attempt in range(
+            1,
+            max_attempts + 1,
+        ):
+
+            dmtf_targets = (
+                self.discover_dmtf_storage_targets()
+            )
+
+            dmtf_target = (
+                self.select_dmtf_storage_target(
+                    dmtf_targets
+                )
+            )
+
+            if (
+                dmtf_target
+                and dmtf_target[
+                    "writable"
+                ]
+                and len(
+                    dmtf_target[
+                        "drive_uris"
+                    ]
+                )
+                >= RAID_DATA_DRIVE_COUNT
+            ):
+
+                return {
+                    "method":
+                        "DMTF",
+
+                    "dmtf_target":
+                        dmtf_target,
+                }
+
+            (
+                config_uri,
+                drive_locations,
+                config_data,
+            ) = (
+                self.select_smartstorage_config()
+            )
+
+            if (
+                config_uri
+                and len(
+                    drive_locations
+                )
+                >= RAID_DATA_DRIVE_COUNT
+            ):
+
+                return {
+                    "method":
+                        "SmartStorageConfig",
+
+                    "config_uri":
+                        config_uri,
+
+                    "drive_locations":
+                        drive_locations,
+
+                    "config_data":
+                        config_data,
+                }
+
+            if (
+                attempt == 1
+                or attempt % 2 == 1
+            ):
+
+                log(
+                    self.row_number,
+                    self.ip,
+                    (
+                        "Waiting for a writable RAID "
+                        "interface... "
+                        f"(Attempt {attempt}/{max_attempts}; "
+                        f"DMTF="
+                        f"{'writable' if dmtf_target and dmtf_target['writable'] else 'not writable'}; "
+                        f"SmartStorageConfig="
+                        f"{'available' if config_uri else 'not available'})"
+                    ),
+                )
+
+            time.sleep(
+                POLL_INTERVAL_SECONDS
+            )
+
+        return None
 
 
     # =========================================================================
@@ -2026,7 +4754,39 @@ class ServerProcessor:
         self,
         baseline_count,
         timeout_minutes,
+        expected_storage_uri=None,
+        expected_drive_uris=None,
     ):
+
+        # DMTF writes are verified with the dedicated short-poll routine. This
+        # avoids the old 30-minute loop when HPE returns equivalent drive links
+        # under a different URI namespace.
+        if expected_storage_uri:
+
+            volume = (
+                self.wait_for_dmtf_raid1_volume(
+                    expected_storage_uri,
+                    expected_drive_uris,
+                    timeout_seconds=(
+                        DMTF_APPLY_TIMEOUT_SECONDS
+                    ),
+                )
+            )
+
+            if volume:
+
+                log(
+                    self.row_number,
+                    self.ip,
+                    (
+                        "SUCCESS: RAID1 volume verified "
+                        "through DMTF Storage."
+                    ),
+                )
+
+                return True
+
+            return False
 
         max_attempts = max(
             1,
@@ -2058,67 +4818,36 @@ class ServerProcessor:
                     self.get_existing_logical_drives()
                 )
 
-                current_count = len(
-                    logical_drives
-                )
+                for logical_drive in logical_drives:
 
-                if (
-                    current_count > 0
-                    and (
-                        baseline_count == 0
-                        or current_count
-                        != baseline_count
-                    )
-                ):
-
-                    log(
-                        self.row_number,
-                        self.ip,
-                        (
-                            "SUCCESS: RAID logical volume "
-                            f"detected through {source}. "
-                            f"Logical drives={current_count}"
-                        ),
-                    )
-
-                    return True
-
-                # With overwrite, number of logical drives can remain the same.
-                if (
-                    current_count > 0
-                    and baseline_count > 0
-                ):
-
-                    for logical_drive in logical_drives:
-
-                        raid_value = str(
+                    raid_value = str(
+                        logical_drive.get(
+                            "Raid",
                             logical_drive.get(
-                                "Raid",
+                                "RAIDType",
                                 logical_drive.get(
-                                    "RAIDType",
-                                    logical_drive.get(
-                                        "VolumeType",
-                                        "",
-                                    ),
+                                    "VolumeType",
+                                    "",
                                 ),
-                            )
-                        ).lower()
+                            ),
+                        )
+                    ).lower()
 
-                        if (
-                            "raid1" in raid_value
-                            or "mirrored" in raid_value
-                        ):
+                    if (
+                        "raid1" in raid_value
+                        or "mirrored" in raid_value
+                    ):
 
-                            log(
-                                self.row_number,
-                                self.ip,
-                                (
-                                    "SUCCESS: RAID1 logical "
-                                    f"volume detected via {source}."
-                                ),
-                            )
+                        log(
+                            self.row_number,
+                            self.ip,
+                            (
+                                "SUCCESS: RAID1 logical "
+                                f"volume detected via {source}."
+                            ),
+                        )
 
-                            return True
+                        return True
 
             except Exception:
 
@@ -2134,8 +4863,7 @@ class ServerProcessor:
                     self.ip,
                     (
                         "Polling RAID inventory... "
-                        f"(Attempt "
-                        f"{attempt}/{max_attempts})"
+                        f"(Attempt {attempt}/{max_attempts})"
                     ),
                 )
 
@@ -2188,16 +4916,14 @@ def process_server(
         server.authenticate()
 
         # =====================================================================
-        # FIRST: READ EXISTING RAID WHILE CURRENT OS IS RUNNING
-        #
-        # Do NOT require SmartStorageConfig just to inspect existing RAID.
+        # READ CURRENT RAID
         # =====================================================================
 
         log(
             row_number,
             ip,
             (
-                "Reading existing Smart Array "
+                "Reading existing storage/RAID "
                 "inventory while server is online..."
             ),
         )
@@ -2244,9 +4970,6 @@ def process_server(
                     "status":
                         "Skipped",
 
-                    "time_seconds":
-                        0.0,
-
                     "reason":
                         (
                             "Existing RAID found "
@@ -2270,7 +4993,7 @@ def process_server(
                 row_number,
                 ip,
                 (
-                    "No existing logical drive "
+                    "No existing RAID logical drive "
                     "detected from online inventory."
                 ),
             )
@@ -2280,8 +5003,22 @@ def process_server(
         )
 
         # =====================================================================
-        # DISCOVER WRITE CONFIGURATION
+        # DISCOVER BOTH RAID WRITE MODELS
         # =====================================================================
+
+        dmtf_targets = (
+            server.discover_dmtf_storage_targets()
+        )
+
+        server.log_dmtf_storage_targets(
+            dmtf_targets
+        )
+
+        dmtf_target = (
+            server.select_dmtf_storage_target(
+                dmtf_targets
+            )
+        )
 
         (
             config_uri,
@@ -2291,38 +5028,84 @@ def process_server(
             server.select_smartstorage_config()
         )
 
-        # =====================================================================
-        # FALLBACK:
-        #
-        # If either controller inventory or SmartStorageConfig is unavailable,
-        # explicitly boot to HPE System Utilities.
-        # =====================================================================
+        write_interface = None
 
         if (
-            not controllers
-            or not config_uri
+            dmtf_target
+            and dmtf_target[
+                "writable"
+            ]
+            and len(
+                dmtf_target[
+                    "drive_uris"
+                ]
+            )
+            >= RAID_DATA_DRIVE_COUNT
         ):
 
-            if not controllers:
+            write_interface = {
+                "method":
+                    "DMTF",
 
-                reason = (
-                    "Smart Array inventory not visible"
-                )
-
-            else:
-
-                reason = (
-                    "SmartStorageConfig write interface "
-                    "not visible"
-                )
+                "dmtf_target":
+                    dmtf_target,
+            }
 
             log(
                 row_number,
                 ip,
                 (
-                    f"{reason}. "
-                    "Rebooting to System Utilities "
-                    "to initialize/expose storage..."
+                    "Using writable DMTF Redfish Storage "
+                    "interface. Legacy SmartStorageConfig "
+                    "is not required for this controller."
+                ),
+            )
+
+        elif (
+            config_uri
+            and len(
+                drive_locations
+            )
+            >= RAID_DATA_DRIVE_COUNT
+        ):
+
+            write_interface = {
+                "method":
+                    "SmartStorageConfig",
+
+                "config_uri":
+                    config_uri,
+
+                "drive_locations":
+                    drive_locations,
+
+                "config_data":
+                    config_data,
+            }
+
+            log(
+                row_number,
+                ip,
+                (
+                    "Using legacy HPE "
+                    "SmartStorageConfig write interface."
+                ),
+            )
+
+        # =====================================================================
+        # FALLBACK TO SYSTEM UTILITIES ONLY IF NEITHER MODEL IS READY
+        # =====================================================================
+
+        if not write_interface:
+
+            log(
+                row_number,
+                ip,
+                (
+                    "No writable RAID interface is currently "
+                    "ready. Rebooting to System Utilities and "
+                    "retrying both DMTF Storage and "
+                    "SmartStorageConfig..."
                 ),
             )
 
@@ -2330,210 +5113,406 @@ def process_server(
 
             booted_to_utilities = True
 
-            (
-                controllers,
-                config_uri,
-                drive_locations,
-                config_data,
-            ) = (
-                server.wait_for_storage(
-                    ctrl_timeout,
-                    require_config=True,
+            write_interface = (
+                server.wait_for_raid_write_interface(
+                    ctrl_timeout
                 )
             )
 
-            # -----------------------------------------------------------------
-            # Once in utilities, check existing RAID AGAIN.
-            # -----------------------------------------------------------------
+            if not write_interface:
+
+                return {
+                    "row":
+                        row_number,
+
+                    "ip":
+                        ip,
+
+                    "status":
+                        "Failed",
+
+                    "reason":
+                        (
+                            "Neither writable DMTF Storage "
+                            "nor SmartStorageConfig became "
+                            "available after System Utilities "
+                            f"for {ctrl_timeout} mins"
+                        ),
+                }
 
             (
-                existing_ld_after_boot,
-                inventory_source_after_boot,
+                existing_after_boot,
+                inventory_after_boot,
                 _,
             ) = (
                 server.get_existing_logical_drives()
             )
 
-            if existing_ld_after_boot:
+            if existing_after_boot:
+
+                baseline_count = len(
+                    existing_after_boot
+                )
 
                 log(
                     row_number,
                     ip,
                     (
-                        "Existing RAID became visible "
-                        "after entering System Utilities: "
-                        f"{len(existing_ld_after_boot)} "
-                        "logical volume(s)."
+                        "Existing RAID visible after "
+                        "pre-OS transition via "
+                        f"{inventory_after_boot}: "
+                        f"{baseline_count} volume(s)."
                     ),
                 )
 
-                baseline_count = len(
-                    existing_ld_after_boot
-                )
+        # =====================================================================
+        # CREATE/STAGE RAID1
+        # =====================================================================
 
-                if not overwrite_raid:
+        selected_drives = []
+        expected_storage_uri = None
+        expected_controller_name = None
+        expected_drive_uris = None
+
+        if (
+            write_interface[
+                "method"
+            ]
+            == "DMTF"
+        ):
+
+            target = (
+                write_interface[
+                    "dmtf_target"
+                ]
+            )
+
+            log(
+                row_number,
+                ip,
+                (
+                    "Selected DMTF storage target: "
+                    f"{target['storage_uri']} | "
+                    f"{target['controller_label']}"
+                ),
+            )
+
+            log(
+                row_number,
+                ip,
+                (
+                    "Physical drives exposed through "
+                    "DMTF Storage: "
+                    f"{target['drive_uris']}"
+                ),
+            )
+
+            selected_drives = (
+                server.stage_dmtf_raid1_configuration(
+                    target,
+                    overwrite_raid,
+                )
+            )
+
+            expected_storage_uri = (
+                target[
+                    "storage_uri"
+                ]
+            )
+
+            expected_controller_name = str(
+                (
+                    target.get(
+                        "storage_data",
+                        {},
+                    )
+                    or {}
+                ).get(
+                    "Name",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            expected_drive_uris = list(
+                selected_drives
+            )
+
+        else:
+
+            config_uri = (
+                write_interface[
+                    "config_uri"
+                ]
+            )
+
+            drive_locations = (
+                write_interface[
+                    "drive_locations"
+                ]
+            )
+
+            log(
+                row_number,
+                ip,
+                (
+                    "SmartStorageConfig available: "
+                    f"{config_uri}"
+                ),
+            )
+
+            log(
+                row_number,
+                ip,
+                (
+                    "Physical drives exposed for "
+                    f"configuration: {drive_locations}"
+                ),
+            )
+
+            selected_drives = (
+                server.stage_raid1_configuration(
+                    config_uri,
+                    drive_locations,
+                )
+            )
+
+        # =====================================================================
+        # APPLY / INITIALIZE / VERIFY
+        # =====================================================================
+
+        if (
+            write_interface[
+                "method"
+            ]
+            == "DMTF"
+        ):
+
+            # iLO 5 applies MR-controller volume creation on reboot. Boot into
+            # System Utilities so the old OS is never allowed to start before
+            # the recreated RAID volume has been initialized.
+            log(
+                row_number,
+                ip,
+                (
+                    "RAID configuration request accepted. "
+                    "Rebooting into System Utilities to apply "
+                    "the new DMTF RAID configuration while "
+                    "preventing the old OS from booting..."
+                ),
+            )
+
+            server.reboot_to_system_utilities()
+
+            booted_to_utilities = True
+
+            # Do NOT wait for PostState=FinishedPost here.
+            #
+            # System Utilities/BiosSetup is itself a pre-OS POST destination,
+            # and iLO can legitimately remain at InPostDiscoveryComplete while
+            # the utility screen is already available. Start polling the DMTF
+            # controller and RAID volume immediately after the reboot
+            # transition instead.
+            created_volume = (
+                server.wait_for_dmtf_raid1_volume(
+                    expected_storage_uri,
+                    expected_drive_uris,
+                    timeout_seconds=(
+                        DMTF_APPLY_TIMEOUT_SECONDS
+                    ),
+                    context=(
+                        "System Utilities RAID apply"
+                    ),
+                    expected_controller_name=(
+                        expected_controller_name
+                    ),
+                )
+            )
+
+            if not created_volume:
+
+                return {
+                    "row":
+                        row_number,
+
+                    "ip":
+                        ip,
+
+                    "status":
+                        "Failed",
+
+                    "reason":
+                        (
+                            "RAID1 create request was accepted "
+                            "but the new RAID1 volume did not "
+                            "appear on the expected DMTF storage "
+                            f"target within "
+                            f"{DMTF_APPLY_TIMEOUT_SECONDS}s"
+                        ),
+                }
+
+            # A brand-new RAID volume is always initialized.  When an
+            # existing RAID was overwritten/recreated, initialization follows
+            # the centralized policy in vars.py.
+            existing_raid_was_overwritten = (
+                overwrite_raid
+                and baseline_count > 0
+            )
+
+            initialize_volume = (
+                True
+                if not existing_raid_was_overwritten
+                else INITIALIZE_OVERWRITTEN_VOLUME
+            )
+
+            if initialize_volume:
+
+                if existing_raid_was_overwritten:
 
                     log(
                         row_number,
                         ip,
                         (
-                            "Overwrite=No. Restoring normal "
-                            "boot and leaving existing RAID "
-                            "unchanged."
+                            "Existing RAID was overwritten. "
+                            "Initialization policy is ENABLED; "
+                            f"initializing recreated RAID1 using "
+                            f"{INITIALIZE_TYPE} initialization."
                         ),
                     )
 
-                    server.reboot_normal()
+                else:
 
-                    return {
-                        "row":
-                            row_number,
+                    log(
+                        row_number,
+                        ip,
+                        (
+                            "New RAID1 volume detected. "
+                            "New RAID volumes are always initialized "
+                            f"using {INITIALIZE_TYPE} initialization."
+                        ),
+                    )
 
-                        "ip":
-                            ip,
+                server.initialize_dmtf_volume(
+                    created_volume,
+                    INITIALIZE_TYPE,
+                )
 
-                        "status":
-                            "Skipped",
+                initialization_status = (
+                    "{}-initialized"
+                    .format(
+                        INITIALIZE_TYPE
+                    )
+                )
 
-                        "reason":
-                            (
-                                "Existing RAID found after "
-                                "System Utilities boot "
-                                f"via "
-                                f"{inventory_source_after_boot}"
-                            ),
-                    }
+            else:
 
-        # =====================================================================
-        # VALIDATE CONTROLLER
-        # =====================================================================
-
-        if not controllers:
-
-            return {
-                "row":
+                log(
                     row_number,
-
-                "ip":
                     ip,
-
-                "status":
-                    "Failed",
-
-                "reason":
                     (
-                        "Smart Array controller inventory "
-                        "still unavailable after booting "
-                        f"to System Utilities for "
-                        f"{ctrl_timeout} mins"
+                        "Existing RAID was overwritten. "
+                        "Initialization policy is DISABLED; "
+                        "the recreated RAID1 will NOT be initialized."
                     ),
-            }
+                )
 
-        if not config_uri:
+                initialization_status = (
+                    "not initialized by policy"
+                )
 
-            return {
-                "row":
-                    row_number,
-
-                "ip":
-                    ip,
-
-                "status":
-                    "Failed",
-
-                "reason":
-                    (
-                        "SmartStorageConfig still unavailable "
-                        "after booting to System Utilities for "
-                        f"{ctrl_timeout} mins"
-                    ),
-            }
-
-        log(
-            row_number,
-            ip,
-            (
-                "SmartStorageConfig available: "
-                f"{config_uri}"
-            ),
-        )
-
-        log(
-            row_number,
-            ip,
-            (
-                "Physical drives exposed for "
-                f"configuration: {drive_locations}"
-            ),
-        )
-
-        # =====================================================================
-        # DRIVE VALIDATION
-        # =====================================================================
-
-        if (
-            len(drive_locations)
-            < RAID_DATA_DRIVE_COUNT
-        ):
-
-            if booted_to_utilities:
-
-                try:
-                    server.reboot_normal()
-                except Exception:
-                    pass
-
-            return {
-                "row":
-                    row_number,
-
-                "ip":
-                    ip,
-
-                "status":
-                    "Failed",
-
-                "reason":
-                    (
-                        f"Only {len(drive_locations)} "
-                        "physical drive(s) visible in "
-                        "SmartStorageConfig; RAID1 requires 2"
-                    ),
-            }
-
-        # =====================================================================
-        # STAGE RAID1
-        # =====================================================================
-
-        selected_drives = (
-            server.stage_raid1_configuration(
-                config_uri,
-                drive_locations,
+            # Restore normal boot only after RAID1 exists and the configured
+            # initialization policy has been applied.
+            log(
+                row_number,
+                ip,
+                (
+                    "RAID1 creation is verified and the configured "
+                    "initialization policy has been applied. "
+                    "Restoring normal boot and rebooting the server..."
+                ),
             )
-        )
 
-        # =====================================================================
-        # REBOOT TO APPLY
-        #
-        # SmartStorageConfig changes are pending settings and are applied
-        # during reboot.
-        # =====================================================================
+            server.reboot_normal()
 
+            booted_to_utilities = False
+
+            final_volume = (
+                server.wait_for_dmtf_raid1_volume(
+                    expected_storage_uri,
+                    expected_drive_uris,
+                    timeout_seconds=(
+                        DMTF_APPLY_TIMEOUT_SECONDS
+                    ),
+                    context=(
+                        "final post-reboot verification"
+                    ),
+                    expected_controller_name=(
+                        expected_controller_name
+                    ),
+                )
+            )
+
+            if not final_volume:
+
+                return {
+                    "row":
+                        row_number,
+
+                    "ip":
+                        ip,
+
+                    "status":
+                        "Failed",
+
+                    "reason":
+                        (
+                            "RAID1 was created and initialized "
+                            "but could not be verified after "
+                            "the final reboot"
+                        ),
+                }
+
+            return {
+                "row":
+                    row_number,
+
+                "ip":
+                    ip,
+
+                "status":
+                    "Successful",
+
+                "reason":
+                    (
+                        "RAID1 created, "
+                        f"{initialization_status}, "
+                        "and verified using DMTF on "
+                        f"{', '.join(selected_drives)}"
+                    ),
+            }
+
+        # Legacy SmartStorageConfig path.
         log(
             row_number,
             ip,
             (
                 "RAID configuration staged. "
                 "Rebooting server to apply "
-                "Smart Array settings..."
+                "SmartStorageConfig settings..."
             ),
         )
 
         server.reboot_normal()
 
-        # =====================================================================
-        # VERIFY
-        # =====================================================================
+        server.wait_for_post_complete(
+            max(
+                180,
+                int(
+                    ctrl_timeout
+                    * 60
+                ),
+            )
+        )
 
         success = (
             server.poll_for_raid(
@@ -2557,7 +5536,8 @@ def process_server(
                 "reason":
                     (
                         "RAID1 created successfully "
-                        f"on {', '.join(selected_drives)}"
+                        "using SmartStorageConfig on "
+                        f"{', '.join(selected_drives)}"
                     ),
             }
 
@@ -2573,8 +5553,8 @@ def process_server(
 
             "reason":
                 (
-                    "Timeout waiting for RAID1 "
-                    f"to appear after "
+                    "SmartStorageConfig RAID1 was staged "
+                    "but verification timed out after "
                     f"{raid_timeout} mins"
                 ),
         }
@@ -2584,6 +5564,7 @@ def process_server(
         try:
 
             if booted_to_utilities:
+
                 server.set_boot_to_normal()
 
         except Exception:
@@ -2614,6 +5595,12 @@ def process_server(
 # =============================================================================
 
 def main():
+
+    print(
+        "SCRIPT BUILD: {}".format(
+            SCRIPT_BUILD
+        )
+    )
 
     excel_path = EXCEL_PATH
 

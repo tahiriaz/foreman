@@ -25,6 +25,23 @@ def main():
     print("Foreman creates   : {}".format(
         vars.FOREMAN_CREATE_CONCURRENCY
     ))
+    print("Physical PXE boot : {}".format(
+        (
+            "ENABLED - auto start/reboot"
+            if vars.FOREMAN_PHYSICAL_NETWORK_BOOT_ENABLED
+            else "DISABLED"
+        )
+    ))
+    print("PXE rack types    : {}".format(
+        ", ".join(
+            vars.FOREMAN_PHYSICAL_NETWORK_BOOT_RACK_TYPES
+        )
+    ))
+    print("PXE blade types   : {}".format(
+        ", ".join(
+            vars.FOREMAN_PHYSICAL_NETWORK_BOOT_BLADE_TYPES
+        )
+    ))
     print()
 
     results = provision_from_excel()

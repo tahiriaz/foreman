@@ -59,6 +59,7 @@ def provision_from_excel(
                 "LogicalName": logical_name,
                 "Status": validation["status"],
                 "Foreman": "N/A",
+                "Boot": "N/A",
                 "DNS": "N/A",
                 "Ansible": "N/A",
                 "Details": validation["details"],
@@ -77,6 +78,7 @@ def provision_from_excel(
                 "LogicalName": logical_name,
                 "Status": "Skipped",
                 "Foreman": "N/A",
+                "Boot": "N/A",
                 "DNS": "N/A",
                 "Ansible": "N/A",
                 "Details": details,
@@ -136,6 +138,9 @@ def provision_from_excel(
                 foreman_status = function_result.get(
                     "foreman_status", "N/A"
                 )
+                boot_status = function_result.get(
+                    "boot_status", "N/A"
+                )
                 dns_status = function_result.get("dns_status", "N/A")
                 ansible_status = function_result.get(
                     "ansible_status", "N/A"
@@ -146,19 +151,19 @@ def provision_from_excel(
             elif function_result is False:
                 status = "Failed"
                 details = "Processor returned False"
-                foreman_status = dns_status = ansible_status = "N/A"
+                foreman_status = boot_status = dns_status = ansible_status = "N/A"
             elif function_result is True:
                 status = "Successful"
                 details = "Processor completed successfully"
-                foreman_status = dns_status = ansible_status = "N/A"
+                foreman_status = boot_status = dns_status = ansible_status = "N/A"
             else:
                 status = "Successful"
                 details = "Processor completed"
-                foreman_status = dns_status = ansible_status = "N/A"
+                foreman_status = boot_status = dns_status = ansible_status = "N/A"
         except Exception as exc:
             status = "Failed"
             details = str(exc)
-            foreman_status = dns_status = ansible_status = "Unknown"
+            foreman_status = boot_status = dns_status = ansible_status = "Unknown"
 
         elapsed = time.time() - start_time
         print(
@@ -173,6 +178,7 @@ def provision_from_excel(
             "LogicalName": logical_name,
             "Status": status,
             "Foreman": foreman_status,
+            "Boot": boot_status,
             "DNS": dns_status,
             "Ansible": ansible_status,
             "Details": details,
@@ -197,6 +203,7 @@ def provision_from_excel(
                     "LogicalName": job["logical_name"],
                     "Status": "Failed",
                     "Foreman": "Unknown",
+                    "Boot": "Unknown",
                     "DNS": "Unknown",
                     "Ansible": "Unknown",
                     "Details": f"Unhandled worker exception: {exc}",

@@ -1,3 +1,5 @@
+# BUILD_MARKER: VM_REQUIRED_COLUMNS_V2_20260830
+
 import pandas as pd
 
 from functions import vars
@@ -17,15 +19,16 @@ FE_COLS = ['fe_logical_naming', 'fe_vlan_id', 'fe_vlan_name', 'fe_netmask', 'fe_
 ME_COLS = ['me_logical_naming', 'me_vlan_id', 'me_vlan_name', 'me_netmask', 'me_ip_address', 'me_gateway', 'me_interface_type', 'me_interface_name', 'me_attach_to']
 BE_COLS = ['be_logical_name', 'be_vlan_id', 'be_vlan_name', 'be_netmask', 'be_ip_address', 'be_ip_gateway', 'be_interface_type', 'be_interface_name', 'be_attach_to']
 CL_COLS = ['cl_logical_name', 'cl_vlan_id', 'cl_vlan_name', 'cl_netmask', 'cl_ip_address', 'cl_ip_gateway', 'cl_interface_type', 'cl_interface_name', 'cl_attach_to']
-VM_REQ_COLS = ['vm_folder', 'cpu', 'ram_(gb)', 'storage1_disk_size_system', 'storage1_datastore_system', 'virtual_disk_type']
+VM_REQ_COLS = list(vars.VM_CREATION_REQUIRED_COLUMNS)
 NTP_COLS = ['ntp1', 'ntp2']
 FOREMAN_COLS = ['foreman_parameters']
 ENCLOSURE_COLS =  ['enclosure_physical_name', 'enclosure_slot']
 
-# Concatenate lists dynamically for cleaner code
+# Concatenate lists dynamically for cleaner code.
+# Virtual Machine uses the exact centralized required-column list from vars.py.
 REQUIRED_COLUMNS = {
     'ESXi': BASE_COLS + ALIAS_COLS + ['fe_logical_naming', 'fe_ip_address'],
-    'Virtual Machine': BASE_COLS + VM_REQ_COLS + ALIAS_COLS + ['fe_vlan_name', 'fe_logical_naming', 'fe_ip_address', 'os_template_name', 'os_template_version'],
+    'Virtual Machine': VM_REQ_COLS,
     'Virtual IP': BASE_COLS + ALIAS_COLS + ['fe_logical_naming', 'fe_ip_address'],
     'NVR': BASE_COLS + ALIAS_COLS + BOND0_COLS + BOND1_COLS + FE_COLS + ME_COLS + BE_COLS + CL_COLS + FOREMAN_COLS + NTP_COLS + ['variation'],
     'NVR Blade Server': BASE_COLS + ALIAS_COLS + BOND0_COLS + BOND1_COLS + BOND2_COLS + FE_COLS + ME_COLS + BE_COLS + CL_COLS + FOREMAN_COLS + NTP_COLS + ENCLOSURE_COLS + ['variation'],

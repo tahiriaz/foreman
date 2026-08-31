@@ -1,4 +1,4 @@
-# BUILD_MARKER: CENTRAL_PROJECT_CONFIG_V11_STANDARD_LOG_REPORT_20260828
+# BUILD_MARKER: CENTRAL_PROJECT_CONFIG_V18_VM_CREATE_EXCEL_FIELDS_20260830
 
 import os
 
@@ -40,8 +40,8 @@ INVALID_VALUES = {'', 'N.A', 'NAN', 'NONE', 'NODATAFOUND'}
 
 # Inclusive Excel row range shared by all scripts that process the resource list:
 # Foreman provisioning, rack-mount iLO, blade iLO, RAID, and future automation.
-START_ROW = 1029
-END_ROW = 1072
+START_ROW = 928
+END_ROW = 951
 
 # Overall Foreman/DNS orchestration worker pool.
 MAX_WORKERS = 8
@@ -60,6 +60,7 @@ SCRIPT_ARTIFACT_PREFIXES = {
     'gen_clusterconfig': 'Cluster_Config',
     'get_mac_RM': 'MAC_RM',
     'get_mac_BL': 'MAC_BL',
+    'check_vmware_vms': 'VMware_VM_Check',
 }
 
 
@@ -95,6 +96,70 @@ FOREMAN_CREATE_SETTLE_SECONDS = 1
 
 
 # ============================================================================
+# FOREMAN - PHYSICAL HOST NEXT-BOOT NETWORK / PXE
+# ============================================================================
+
+# When True, a newly-created physical Foreman host is configured for one-time
+# network/PXE boot immediately after Foreman POST-create verification succeeds,
+# and the server is started/rebooted immediately so PXE installation begins
+# automatically.
+#
+# Existing Foreman hosts are NOT modified by this workflow.  The PXE action is
+# only triggered for a host that was newly created in the current run.
+FOREMAN_PHYSICAL_NETWORK_BOOT_ENABLED = True
+
+# Physical equipment types handled by the post-Foreman boot workflow.
+FOREMAN_PHYSICAL_NETWORK_BOOT_RACK_TYPES = ['NVR', 'VCA', 'ESXi']
+FOREMAN_PHYSICAL_NETWORK_BOOT_BLADE_TYPES = [
+    'NVR Blade Server',
+    'VCA Blade Server',
+]
+
+# Direct iLO Redfish behavior.
+FOREMAN_PHYSICAL_NETWORK_BOOT_VERIFY_ILO_SSL = False
+FOREMAN_PHYSICAL_NETWORK_BOOT_CONNECT_TIMEOUT_SECONDS = 10
+FOREMAN_PHYSICAL_NETWORK_BOOT_REQUEST_TIMEOUT_SECONDS = 20
+
+# Direct iLO transport handling.
+# RemoteDisconnected/ConnectionReset is retried and is NOT by itself treated
+# as "iLO unreachable". Blade OA fallback is allowed only when TCP/443 cannot
+# be reached after these checks.
+FOREMAN_PHYSICAL_NETWORK_BOOT_ILO_REQUEST_RETRIES = 3
+FOREMAN_PHYSICAL_NETWORK_BOOT_ILO_RETRY_DELAY_SECONDS = 2
+FOREMAN_PHYSICAL_NETWORK_BOOT_ILO_TCP_PROBE_TIMEOUT_SECONDS = 3
+FOREMAN_PHYSICAL_NETWORK_BOOT_ILO_TCP_PROBE_RETRIES = 2
+
+FOREMAN_PHYSICAL_NETWORK_BOOT_POWER_OFF_TIMEOUT_SECONDS = 90
+FOREMAN_PHYSICAL_NETWORK_BOOT_POLL_INTERVAL_SECONDS = 5
+FOREMAN_PHYSICAL_NETWORK_BOOT_POST_ERROR_STRING = (
+    'UnableToModifyDuringSystemPOST'
+)
+
+# Python 3.6 is intentionally retained for this project. Paramiko imports
+# cryptography, whose installed version emits deprecation warnings simply
+# because the interpreter is Python 3.6. physical_boot.py now imports Paramiko
+# lazily only when OA fallback is actually needed and suppresses only these
+# known cryptography deprecation messages during that import.
+FOREMAN_PHYSICAL_NETWORK_BOOT_SUPPRESS_CRYPTO_DEPRECATION_WARNINGS = True
+
+# Blade fallback through the ACTIVE Onboard Administrator.
+# OA lookup scans the COMPLETE worksheet because OA rows can be outside the
+# Foreman START_ROW / END_ROW range.
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_SSH_PORT = 22
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_CONNECT_TIMEOUT_SECONDS = 15
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_KEEPALIVE_SECONDS = 5
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_COMMAND_TIMEOUT_SECONDS = 120
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_QUIET_SECONDS = 5
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_LINE_DELAY_SECONDS = 0.02
+
+# Keep the overall Foreman worker pool parallel, but serialize HPONCFG work
+# for blades belonging to the same enclosure when OA fallback is necessary.
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_SERIALIZE_PER_ENCLOSURE = True
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_RIBCL_RETRIES = 3
+FOREMAN_PHYSICAL_NETWORK_BOOT_OA_RIBCL_RETRY_DELAY_SECONDS = 2
+
+
+# ============================================================================
 # NETWORK / FOREMAN RESOURCES
 # ============================================================================
 
@@ -107,13 +172,101 @@ RTR_PXE_SUBNET = 'rtr_nvr_pxe'
 
 
 # ============================================================================
+# VMWARE / VCENTER INVENTORY CHECK
+# ============================================================================
+
+# vCenter used by check_vmware_vms.py.
+VMWARE_HOST = 'infvirvcr01sf.mak.iss'
+VMWARE_PORT = 443
+VMWARE_USERNAME = 'Administrator@vsphere.local'
+VMWARE_PASSWORD = 'Th@les01'
+
+# Set True only when the vCenter certificate chain/name is trusted by the
+# machine running the script.
+VMWARE_VERIFY_SSL = False
+
+# requests timeout = (connection timeout, response/read timeout)
+VMWARE_CONNECT_TIMEOUT_SECONDS = 10
+VMWARE_READ_TIMEOUT_SECONDS = 60
+
+# Retry transient vCenter REST transport/server errors.
+VMWARE_HTTP_RETRIES = 3
+VMWARE_HTTP_RETRY_DELAY_SECONDS = 2
+
+# Excel selection for this check. The script still uses shared RESOURCE_LIST,
+# SHEET_NAME, EXCEL_ENGINE, START_ROW, END_ROW, EMPTY_VALUE and INVALID_VALUES.
+VMWARE_EQUIPMENT_TYPE = 'Virtual Machine'
+VMWARE_REQUIRED_COLUMNS = [
+    'equipment_type',
+    'hostname',
+    'logical_name',
+    'fe_ip_address',
+    'me_ip_address',
+]
+
+# fe_ip_address must contain a valid IP for every Virtual Machine row.
+# me_ip_address may be empty; when populated it must also be a valid IP.
+VMWARE_FE_IP_REQUIRED = True
+
+# Row checks are local after one vCenter inventory download, but they retain
+# the project parallel-worker pattern.
+VMWARE_CHECK_MAX_WORKERS = MAX_WORKERS
+
+# Guest-IP discovery is performed in parallel against vCenter. VMware Tools
+# must provide guest networking data for vCenter to report guest IP addresses.
+VMWARE_IP_LOOKUP_MAX_WORKERS = MAX_WORKERS
+
+# When True, a row with no detected IP conflict is reported Partial instead of
+# Successful if one or more existing VMs could not be inspected for guest IPs.
+# This prevents a false "IP is free" result when VMware Tools data is missing.
+VMWARE_REQUIRE_COMPLETE_IP_INVENTORY = False
+
+# Standard console-log / summary-CSV prefix.
+VMWARE_REPORT_PREFIX = 'VMware_VM_Check'
+
+
+# ============================================================================
 # VMWARE / VM PROVISIONING
 # ============================================================================
 
 HOSTGROUP_NAME = 'TVS_VMs'
 COMPUTE_RESOURCE = 'ISS vDC'
+
+# VM creation resolves the image, destination folder and disk provisioning type
+# from each Virtual Machine Excel row. These two legacy variables are retained
+# only for compatibility with older external scripts; process_vm.py no longer
+# uses them when creating a VM.
 IMAGE_NAME = 'RHEL 8.10'
 VSTORAGE_TYPE = 'thin'
+
+VM_IMAGE_NAME_COLUMN = 'os_template_name'
+VM_FOLDER_COLUMN = 'vm_folder'
+VM_DISK_TYPE_COLUMN = 'virtual_disk_type'
+
+# Exact required data fields for equipment_type='Virtual Machine'.
+# equipment_type itself remains the resource selector used by inventory.py.
+VM_CREATION_REQUIRED_COLUMNS = [
+    'project',
+    'subsystems',
+    'function',
+    'variation',
+    'hostname',
+    'logical_name',
+    'vm_folder',
+    'cpu',
+    'ram_(gb)',
+    'storage1_datastore_system',
+    'storage1_disk_size_system',
+    'storage2_datastore_data',
+    'storage2_disk_size_data',
+    'virtual_disk_type',
+    'domain_name',
+    'fe_vlan_name',
+    'fe_ip_address',
+    'os_template_name',
+    'ntp1',
+    'ntp2',
+]
 
 VM_PROVISION_METHOD = 'image'
 VM_NETWORK_ADAPTER_TYPE = 'VirtualVmxnet3'
@@ -358,6 +511,52 @@ RAID_RM_REBOOT_DETECTION_TIMEOUT_SECONDS = 90
 RAID_RM_REBOOT_DETECTION_POLL_SECONDS = 5
 RAID_RM_POWER_OFF_TIMEOUT_SECONDS = 60
 RAID_RM_POWER_ON_INITIAL_WAIT_SECONDS = 10
+
+# iLO can reject BootSourceOverrideTarget changes while the host is in
+# POST/System Utilities with iLO.2.21.UnableToModifyDuringSystemPOST.
+# When enabled, configure_raid_RM.py powers the host off, verifies Off state,
+# then retries the one-time BiosSetup boot override while the host is off.
+RAID_RM_BOOT_OVERRIDE_POST_RECOVERY = True
+RAID_RM_BOOT_OVERRIDE_RETRY_INTERVAL_SECONDS = 5
+RAID_RM_BOOT_OVERRIDE_RETRY_TIMEOUT_SECONDS = 60
+
+# DMTF MR-controller RAID apply / clean-volume handling.
+# Fast initialization clears boot/partition metadata so an old OS cannot
+# continue booting from a RAID volume that was deleted and recreated with
+# the same geometry. Use 'Full' only when a complete block overwrite is
+# required; it can take a long time on large drives.
+# Maximum time allowed for DMTF RAID apply/visibility. The script does NOT
+# sleep for this whole period; it polls continuously at the interval below and
+# proceeds immediately when the expected RAID1 becomes visible.
+RAID_RM_DMTF_APPLY_TIMEOUT_SECONDS = 300
+RAID_RM_DMTF_POLL_INTERVAL_SECONDS = 5
+
+# RAID volume initialization policy:
+#
+# - A genuinely NEW RAID volume is always initialized by configure_raid_RM.py
+#   so stale partition/boot metadata cannot survive on previously-used disks.
+#
+# - When an EXISTING RAID is overwritten/recreated, initialization is controlled
+#   by RAID_RM_INITIALIZE_OVERWRITTEN_VOLUME.
+#
+# True  = initialize the recreated/overwritten RAID volume.
+# False = recreate the RAID but do not initialize its logical volume.
+RAID_RM_INITIALIZE_OVERWRITTEN_VOLUME = False
+
+# Fast is intended for normal provisioning. Full can take a long time because
+# it writes the complete logical volume.
+# HPE MR Redfish Volume.Initialize parameters.
+#
+# Foreground + Fast = quick erase / initialize; this clears the first/last
+# metadata regions including old boot/partition information.
+#
+# Foreground + Slow = full erase / initialize and can take a long time.
+RAID_RM_INITIALIZE_METHOD = 'Foreground'
+RAID_RM_INITIALIZE_TYPE = 'Fast'
+RAID_RM_INITIALIZE_ACTION_DISCOVERY_TIMEOUT_SECONDS = 60
+RAID_RM_INITIALIZE_POLL_INTERVAL_SECONDS = 5
+RAID_RM_INITIALIZE_TIMEOUT_SECONDS = 300
+RAID_RM_INITIALIZE_SETTLE_SECONDS = 5
 
 RAID_RM_REPORT_PREFIX = 'RAID_RM_DL380_Gen10Plus'
 

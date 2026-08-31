@@ -228,8 +228,9 @@ def foreman_summary_rows(results):
 
     for result in results or []:
         component_details = (
-            "Foreman={}; DNS={}; Ansible={}".format(
+            "Foreman={}; Boot={}; DNS={}; Ansible={}".format(
                 result.get("Foreman", "N/A"),
+                result.get("Boot", "N/A"),
                 result.get("DNS", "N/A"),
                 result.get("Ansible", "N/A"),
             )
