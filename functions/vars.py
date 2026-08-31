@@ -278,7 +278,7 @@ VM_START_ON_CREATE = '1'
 # ============================================================================
 
 ANSIBLE_JOB_NAME = 'Ansible Roles - Ansible Default'
-ANSIBLE_DELAY = 180
+ANSIBLE_DELAY = 360
 ANSIBLE_TARGETING_TYPE = 'static_query'
 ANSIBLE_CONCURRENCY_LEVEL = 1
 
