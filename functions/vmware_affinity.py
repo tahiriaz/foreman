@@ -1,4 +1,4 @@
-# BUILD_MARKER: VMWARE_AFFINITY_V1_20260901
+# BUILD_MARKER: VMWARE_PLACEMENT_V3_20260901
 
 import ssl
 import threading
@@ -178,6 +178,180 @@ def _add_vm_to_group(cluster, vim, vm_obj, group):
     )
     _wait_for_task(task, vars.VM_AFFINITY_TASK_TIMEOUT_SECONDS)
 
+
+
+def _get_vm_datacenter(vm_obj, vim):
+    """Return the Datacenter containing the VM."""
+    current = vm_obj
+
+    while current is not None:
+        if isinstance(current, vim.Datacenter):
+            return current
+        current = getattr(current, "parent", None)
+
+    raise RuntimeError(
+        "Unable to determine the vSphere datacenter for VM '{}'".format(
+            vm_obj.name
+        )
+    )
+
+
+def _normalize_folder_parts(datacenter, folder_path):
+    """
+    Normalize Excel/Foreman folder paths below a datacenter's VM root.
+
+    Accepted examples:
+      TVS_NEW
+      MTR-RTR Project/TVS/TVS_NEW
+      vm/MTR-RTR Project/TVS/TVS_NEW
+      ISS/vm/MTR-RTR Project/TVS/TVS_NEW
+      /Datacenters/ISS/vm/MTR-RTR Project/TVS/TVS_NEW
+    """
+    raw_path = str(folder_path or "").strip().replace("\\", "/")
+    parts = [part.strip() for part in raw_path.split("/") if part.strip()]
+
+    if parts and parts[0].lower() == "datacenters":
+        parts = parts[1:]
+
+    if (
+        parts
+        and parts[0].lower() == str(datacenter.name).strip().lower()
+    ):
+        parts = parts[1:]
+
+    if parts and parts[0].lower() == "vm":
+        parts = parts[1:]
+
+    return parts
+
+
+def _find_child_folder(parent_folder, vim, folder_name):
+    """Find one direct child VM folder by exact case-insensitive name."""
+    expected = str(folder_name).strip().lower()
+
+    for child in getattr(parent_folder, "childEntity", None) or []:
+        if (
+            isinstance(child, vim.Folder)
+            and str(child.name).strip().lower() == expected
+        ):
+            return child
+
+    return None
+
+
+def _find_vm_folder(datacenter, vim, folder_path):
+    """Resolve a configured VM folder below the datacenter VM root."""
+    parts = _normalize_folder_parts(datacenter, folder_path)
+    current = datacenter.vmFolder
+
+    if not parts:
+        return current
+
+    for part in parts:
+        current = _find_child_folder(current, vim, part)
+        if current is None:
+            return None
+
+    return current
+
+
+def ensure_vm_folder(hostname, folder_path):
+    """
+    Ensure an existing VM is located in the requested vSphere VM folder.
+
+    The folder must already exist. This function never powers the VM on/off.
+    """
+    result = {
+        "success": False,
+        "status": "Warning",
+        "hostname": hostname,
+        "folder": folder_path,
+        "message": "",
+    }
+    service_instance = None
+    Disconnect = None
+
+    try:
+        Disconnect, SmartConnect, vim = _load_pyvmomi()
+        service_instance = _connect_vcenter(SmartConnect)
+        content = service_instance.RetrieveContent()
+        vm_obj = _wait_for_vm(content, vim, hostname)
+        datacenter = _get_vm_datacenter(vm_obj, vim)
+        target_folder = _find_vm_folder(datacenter, vim, folder_path)
+
+        if target_folder is None:
+            result["message"] = (
+                "VM folder '{}' does not exist in datacenter '{}'".format(
+                    folder_path,
+                    datacenter.name,
+                )
+            )
+            return result
+
+        current_folder = getattr(vm_obj, "parent", None)
+        if (
+            current_folder is not None
+            and current_folder._moId == target_folder._moId
+        ):
+            result.update({
+                "success": True,
+                "status": "Successful",
+                "message": (
+                    "VM '{}' is already in folder '{}'".format(
+                        vm_obj.name,
+                        folder_path,
+                    )
+                ),
+            })
+            return result
+
+        task = target_folder.MoveIntoFolder_Task([vm_obj])
+        _wait_for_task(task, vars.VM_AFFINITY_TASK_TIMEOUT_SECONDS)
+
+        # Re-query the VM to verify the resulting parent folder.
+        vm_obj = _find_vm(content, vim, hostname)
+        current_folder = getattr(vm_obj, "parent", None)
+
+        if (
+            current_folder is None
+            or current_folder._moId != target_folder._moId
+        ):
+            raise RuntimeError(
+                "vCenter completed the move task but VM '{}' could not be "
+                "verified in folder '{}'".format(
+                    hostname,
+                    folder_path,
+                )
+            )
+
+        result.update({
+            "success": True,
+            "status": "Successful",
+            "message": (
+                "VM '{}' moved to folder '{}' in datacenter '{}'".format(
+                    vm_obj.name,
+                    folder_path,
+                    datacenter.name,
+                )
+            ),
+        })
+        return result
+
+    except Exception as error:
+        result["message"] = (
+            "Unable to place VM '{}' in folder '{}': {}".format(
+                hostname,
+                folder_path,
+                error,
+            )
+        )
+        return result
+    finally:
+        if service_instance is not None and Disconnect is not None:
+            try:
+                Disconnect(service_instance)
+            except Exception:
+                pass
 
 def assign_vm_to_group(hostname, group_name):
     """

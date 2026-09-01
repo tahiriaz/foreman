@@ -1,4 +1,4 @@
-# BUILD_MARKER: CENTRAL_PROJECT_CONFIG_V23_VM_AFFINITY_GROUP_20260901
+# BUILD_MARKER: CENTRAL_PROJECT_CONFIG_V24_VM_AFFINITY_FOLDER_20260901
 
 import os
 
@@ -180,6 +180,7 @@ RTR_PXE_SUBNET = 'rtr_nvr_pxe'
 
 # vCenter used by check_vmware_vms.py.
 VMWARE_HOST = 'infvirvcr01sf.mak.iss'
+VMWARE_DATACENTER = 'ISS'
 VMWARE_PORT = 443
 VMWARE_USERNAME = 'Administrator@vsphere.local'
 VMWARE_PASSWORD = 'Th@les01'
@@ -804,8 +805,8 @@ MAC_RM_DEBUG = False
 # ============================================================================
 
 # get_mac_BL.py intentionally scans the worksheet from row 2 because it first
-# needs to locate the requested enclosure and both OA addresses. The shared
-# EXCEL_EMPTY_ROW_STOP controls optimized early termination.
+# needs to locate the requested enclosure, its components, and both OA addresses.
+# The shared EXCEL_EMPTY_ROW_STOP controls optimized early termination.
 MAC_BL_REQUIRED_COLUMNS = [
     'equipment_physical_name',
     'enclosure_physical_name',
@@ -815,6 +816,15 @@ MAC_BL_REQUIRED_COLUMNS = [
 ] + MAC_OUTPUT_COLUMNS
 
 MAC_BL_EXCEL_EMPTY_ROW_STOP = EXCEL_EMPTY_ROW_STOP
+
+# Enclosure component serial-number collection. OA modules occupy slots 1-2.
+# This project currently uses enclosure switch/interconnect slots 1-6.
+MAC_BL_OA_SLOTS = (1, 2)
+MAC_BL_SWITCH_SLOTS = tuple(range(1, 7))
+MAC_BL_SERIAL_INVALID_VALUES = set(INVALID_VALUES) | {
+    'N/A', '[N/A]', 'UNKNOWN', '[UNKNOWN]', 'NOT PRESENT', '[NOT PRESENT]',
+    'ABSENT', '[ABSENT]',
+}
 
 # OA connection settings used specifically by the MAC collection script.
 MAC_BL_OA_CONNECT_TIMEOUT = 10

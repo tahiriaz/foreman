@@ -1,4 +1,4 @@
-# BUILD_MARKER: FOREMAN_VM_AFFINITY_V1_20260901
+# BUILD_MARKER: FOREMAN_VM_AFFINITY_FOLDER_V3_20260901
 
 import time
 from datetime import datetime, timedelta, timezone
@@ -112,6 +112,63 @@ def _get_affinity_group(vm):
     """Return a normalized optional affinity group or an empty string."""
     value = vm.get(vars.VM_AFFINITY_GROUP_COLUMN)
     return str(value).strip() if is_valid(value) else ""
+
+
+def _normalize_vm_folder_path(value):
+    """
+    Return the full Fog-vSphere inventory path expected by Foreman.
+
+    Supported input examples:
+      MTR-RTR Project/TVS/TVS_NEW
+      vm/MTR-RTR Project/TVS/TVS_NEW
+      ISS/vm/MTR-RTR Project/TVS/TVS_NEW
+      /ISS/vm/MTR-RTR Project/TVS/TVS_NEW
+      /Datacenters/ISS/vm/MTR-RTR Project/TVS/TVS_NEW
+    """
+    folder = str(value or "").strip().replace("\\", "/")
+    folder = folder.strip("/")
+
+    if not folder:
+        raise ValueError("VM folder path is empty")
+
+    datacenter = str(vars.VMWARE_DATACENTER).strip().strip("/")
+    if not datacenter:
+        raise ValueError("VMWARE_DATACENTER is empty")
+
+    parts = [part.strip() for part in folder.split("/") if part.strip()]
+    if not parts:
+        raise ValueError("VM folder path is empty")
+
+    # Already a complete Fog-vSphere inventory path.
+    if parts[0].lower() == "datacenters":
+        if len(parts) < 4:
+            raise ValueError(
+                "Invalid full vSphere folder path: /{}".format(
+                    "/".join(parts)
+                )
+            )
+        return "/{}".format("/".join(parts))
+
+    # Excel contains: ISS/vm/<folder hierarchy>
+    if (
+        len(parts) >= 2
+        and parts[0].lower() == datacenter.lower()
+        and parts[1].lower() == "vm"
+    ):
+        return "/Datacenters/{}".format("/".join(parts))
+
+    # Excel contains: vm/<folder hierarchy>
+    if parts[0].lower() == "vm":
+        return "/Datacenters/{}/{}".format(
+            datacenter,
+            "/".join(parts),
+        )
+
+    # Excel contains only the folder hierarchy.
+    return "/Datacenters/{}/vm/{}".format(
+        datacenter,
+        "/".join(parts),
+    )
 
 
 def _power_state_from_response(response):
@@ -305,6 +362,13 @@ def create(vm):
             _set_existing_vm(result, hostname, existing)
         else:
             payload = create_payload(vm)
+
+            print(
+                "VM {} target vSphere folder: {}".format(
+                    hostname,
+                    payload["host"]["compute_attributes"]["path"],
+                )
+            )
 
             with foreman.host_creation_slot(hostname):
                 # Final existence check under the same creation lock.
@@ -692,11 +756,13 @@ def create_payload(vm):
             "image_id": get_image_id(image_name),
             "provision_method": vars.VM_PROVISION_METHOD,
             "managed": True,
-            "path": vm[vars.VM_FOLDER_COLUMN],
             "compute_attributes": {
                 "cpus": int(vm["cpu"]),
                 "memory_gb": int(vm["ram_(gb)"]),
                 "start": start_on_create,
+                "path": _normalize_vm_folder_path(
+                    vm[vars.VM_FOLDER_COLUMN]
+                ),
                 "volumes_attributes": [],
             },
             "interfaces_attributes": [],
