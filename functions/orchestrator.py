@@ -1,3 +1,5 @@
+# BUILD_MARKER: FOREMAN_ORCHESTRATOR_AFFINITY_V1_20260901
+
 import concurrent.futures
 import time
 
@@ -19,7 +21,6 @@ def provision_from_excel(
     start_row = vars.START_ROW if start_row is None else start_row
     end_row = vars.END_ROW if end_row is None else end_row
     max_workers = vars.MAX_WORKERS if max_workers is None else max_workers
-
     max_workers = max(1, int(max_workers))
 
     processor_map = {
@@ -50,8 +51,10 @@ def provision_from_excel(
 
         if not validation["valid"]:
             print(
-                f"WARNING (Row {excel_row}): {validation['details']} "
-                f"Skipping."
+                "WARNING (Row {}): {} Skipping.".format(
+                    excel_row,
+                    validation["details"],
+                )
             )
             results.append({
                 "ExcelRow": excel_row,
@@ -60,6 +63,8 @@ def provision_from_excel(
                 "Status": validation["status"],
                 "Foreman": "N/A",
                 "Boot": "N/A",
+                "Affinity": "N/A",
+                "Power": "N/A",
                 "DNS": "N/A",
                 "Ansible": "N/A",
                 "Details": validation["details"],
@@ -70,7 +75,8 @@ def provision_from_excel(
         process_func = processor_map.get(eq_type)
         if not process_func:
             details = (
-                f"No processing function mapped for equipment_type '{eq_type}'."
+                "No processing function mapped for equipment_type '{}'."
+                .format(eq_type)
             )
             results.append({
                 "ExcelRow": excel_row,
@@ -79,6 +85,8 @@ def provision_from_excel(
                 "Status": "Skipped",
                 "Foreman": "N/A",
                 "Boot": "N/A",
+                "Affinity": "N/A",
+                "Power": "N/A",
                 "DNS": "N/A",
                 "Ansible": "N/A",
                 "Details": details,
@@ -99,8 +107,8 @@ def provision_from_excel(
         return results
 
     worker_count = min(max_workers, len(jobs))
-    print(f"\nValid resources to process: {len(jobs)}")
-    print(f"Parallel workers: {worker_count}\n")
+    print("\nValid resources to process: {}".format(len(jobs)))
+    print("Parallel workers: {}\n".format(worker_count))
 
     def execute_job(job):
         excel_row = job["excel_row"]
@@ -108,10 +116,14 @@ def provision_from_excel(
         logical_name = job["logical_name"]
         vm = job["vm"]
         process_func = job["process_func"]
-
         start_time = time.time()
+
         print(
-            f"[Row {excel_row} | {logical_name} | {eq_type}] STARTING",
+            "[Row {} | {} | {}] STARTING".format(
+                excel_row,
+                logical_name,
+                eq_type,
+            ),
             flush=True,
         )
 
@@ -136,14 +148,28 @@ def provision_from_excel(
                         status = "Successful"
 
                 foreman_status = function_result.get(
-                    "foreman_status", "N/A"
+                    "foreman_status",
+                    "N/A",
                 )
                 boot_status = function_result.get(
-                    "boot_status", "N/A"
+                    "boot_status",
+                    "N/A",
                 )
-                dns_status = function_result.get("dns_status", "N/A")
+                affinity_status = function_result.get(
+                    "affinity_status",
+                    "N/A",
+                )
+                power_status = function_result.get(
+                    "power_status",
+                    "N/A",
+                )
+                dns_status = function_result.get(
+                    "dns_status",
+                    "N/A",
+                )
                 ansible_status = function_result.get(
-                    "ansible_status", "N/A"
+                    "ansible_status",
+                    "N/A",
                 )
 
                 if process_func is dns.create_dns_records:
@@ -151,24 +177,49 @@ def provision_from_excel(
             elif function_result is False:
                 status = "Failed"
                 details = "Processor returned False"
-                foreman_status = boot_status = dns_status = ansible_status = "N/A"
+                foreman_status = "N/A"
+                boot_status = "N/A"
+                affinity_status = "N/A"
+                power_status = "N/A"
+                dns_status = "N/A"
+                ansible_status = "N/A"
             elif function_result is True:
                 status = "Successful"
                 details = "Processor completed successfully"
-                foreman_status = boot_status = dns_status = ansible_status = "N/A"
+                foreman_status = "N/A"
+                boot_status = "N/A"
+                affinity_status = "N/A"
+                power_status = "N/A"
+                dns_status = "N/A"
+                ansible_status = "N/A"
             else:
                 status = "Successful"
                 details = "Processor completed"
-                foreman_status = boot_status = dns_status = ansible_status = "N/A"
+                foreman_status = "N/A"
+                boot_status = "N/A"
+                affinity_status = "N/A"
+                power_status = "N/A"
+                dns_status = "N/A"
+                ansible_status = "N/A"
+
         except Exception as exc:
             status = "Failed"
             details = str(exc)
-            foreman_status = boot_status = dns_status = ansible_status = "Unknown"
+            foreman_status = "Unknown"
+            boot_status = "Unknown"
+            affinity_status = "Unknown"
+            power_status = "Unknown"
+            dns_status = "Unknown"
+            ansible_status = "Unknown"
 
         elapsed = time.time() - start_time
         print(
-            f"[Row {excel_row} | {logical_name} | {eq_type}] "
-            f"FINISHED - {status}",
+            "[Row {} | {} | {}] FINISHED - {}".format(
+                excel_row,
+                logical_name,
+                eq_type,
+                status,
+            ),
             flush=True,
         )
 
@@ -179,6 +230,8 @@ def provision_from_excel(
             "Status": status,
             "Foreman": foreman_status,
             "Boot": boot_status,
+            "Affinity": affinity_status,
+            "Power": power_status,
             "DNS": dns_status,
             "Ansible": ansible_status,
             "Details": details,
@@ -189,11 +242,13 @@ def provision_from_excel(
         max_workers=worker_count
     ) as executor:
         future_map = {
-            executor.submit(execute_job, job): job for job in jobs
+            executor.submit(execute_job, job): job
+            for job in jobs
         }
 
         for future in concurrent.futures.as_completed(future_map):
             job = future_map[future]
+
             try:
                 results.append(future.result())
             except Exception as exc:
@@ -204,9 +259,11 @@ def provision_from_excel(
                     "Status": "Failed",
                     "Foreman": "Unknown",
                     "Boot": "Unknown",
+                    "Affinity": "Unknown",
+                    "Power": "Unknown",
                     "DNS": "Unknown",
                     "Ansible": "Unknown",
-                    "Details": f"Unhandled worker exception: {exc}",
+                    "Details": "Unhandled worker exception: {}".format(exc),
                     "TimeSeconds": 0.0,
                 })
 

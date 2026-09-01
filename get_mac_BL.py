@@ -1,4 +1,4 @@
-# BUILD_MARKER: GET_MAC_BL_CENTRAL_V1_20260828
+# BUILD_MARKER: GET_MAC_BL_CENTRAL_V2_20260901_SAFE_SERIAL
 
 import gc
 import os
@@ -364,9 +364,7 @@ def get_all_enclosure_details(
                 results[
                     current_bay
                 ] = {
-                    "serial": (
-                        "Serial Number not found"
-                    ),
+                    "serial": "",
                     "macs": (
                         [""]
                         * vars.MAC_MAX_ADDRESSES
@@ -499,9 +497,7 @@ def get_all_enclosure_details(
             results[
                 bay
             ] = {
-                "serial": (
-                    "Serial Number not found"
-                ),
+                "serial": "",
                 "macs": (
                     [""]
                     * vars.MAC_MAX_ADDRESSES
@@ -549,35 +545,34 @@ def get_all_enclosure_details(
 def refresh_excel_formulas(
     file_path,
 ):
-    """Ask native Excel to rebuild cached formula values."""
+    """Use native Excel to recalculate formulas and rebuild cached values."""
     print(
-        "\nCommanding Excel to recalculate formulas "
-        "in the background..."
+        "\nCommanding Excel to perform a full formula recalculation..."
     )
 
-    absolute_path = (
-        os.path.abspath(
-            file_path
-        )
-    )
-
+    absolute_path = os.path.abspath(file_path)
     excel = None
     workbook = None
 
     try:
-        excel = win32.DispatchEx(
-            "Excel.Application"
-        )
-
+        excel = win32.DispatchEx("Excel.Application")
         excel.Visible = False
         excel.DisplayAlerts = False
+        excel.AskToUpdateLinks = False
 
-        workbook = (
-            excel.Workbooks.Open(
-                absolute_path
-            )
+        workbook = excel.Workbooks.Open(
+            absolute_path,
+            UpdateLinks=0,
+            ReadOnly=False,
         )
 
+        try:
+            # xlCalculationAutomatic = -4105
+            excel.Calculation = -4105
+        except Exception:
+            pass
+
+        excel.CalculateFullRebuild()
         workbook.Save()
 
         print(
@@ -587,17 +582,13 @@ def refresh_excel_formulas(
     except Exception as exc:
         print(
             "WARNING: Could not trigger Excel to "
-            "rebuild formulas: {}".format(
-                exc
-            )
+            "rebuild formulas: {}".format(exc)
         )
 
     finally:
         if workbook:
             try:
-                workbook.Close(
-                    SaveChanges=False
-                )
+                workbook.Close(SaveChanges=False)
             except Exception:
                 pass
 
@@ -607,9 +598,8 @@ def refresh_excel_formulas(
             except Exception:
                 pass
 
-        del workbook
-        del excel
-
+        workbook = None
+        excel = None
         gc.collect()
 
 
@@ -997,6 +987,8 @@ def main():
     )
 
     summary_rows = []
+    serial_changes = []
+    serial_additions = []
 
     for blade in blade_rows:
         item_start = time.time()
@@ -1045,58 +1037,71 @@ def main():
 
             continue
 
-        bay_data = (
-            hardware_data.get(
-                bay_number,
-                {
-                    "serial": (
-                        "Data not found"
-                    ),
-                    "macs": (
-                        [""]
-                        * vars.MAC_MAX_ADDRESSES
-                    ),
-                },
-            )
+        bay_data = hardware_data.get(
+            bay_number,
+            {
+                "serial": "",
+                "macs": [""] * vars.MAC_MAX_ADDRESSES,
+            },
         )
 
-        serial_no = (
-            bay_data[
-                "serial"
-            ]
-        )
+        serial_no = str(bay_data.get("serial") or "").strip()
+        macs = bay_data["macs"]
 
-        macs = (
-            bay_data[
-                "macs"
-            ]
-        )
-
-        worksheet_write.cell(
+        serial_cell = worksheet_write.cell(
             row=row_idx,
-            column=headers[
-                vars.MAC_SERIAL_COLUMN
-            ],
-        ).value = serial_no
+            column=headers[vars.MAC_SERIAL_COLUMN],
+        )
+        existing_serial = str(serial_cell.value or "").strip()
+        serial_found = bool(serial_no)
 
-        for index, column_name in enumerate(
-            vars.MAC_NIC_COLUMNS
-        ):
+        if not serial_found:
+            print(
+                "  Serial Number : [NOT FOUND - EXCEL UNCHANGED]"
+            )
+            if existing_serial:
+                print(
+                    "  Existing Excel: {}".format(existing_serial)
+                )
+
+        elif existing_serial.upper() == serial_no.upper():
+            print(
+                "  Serial Number : {} [UNCHANGED]".format(serial_no)
+            )
+
+        elif existing_serial:
+            serial_cell.value = serial_no
+            serial_changes.append({
+                "row": row_idx,
+                "enclosure": enclosure_name,
+                "slot": bay_number,
+                "old_serial": existing_serial,
+                "new_serial": serial_no,
+            })
+            print(
+                "  Serial Number : {} -> {} [UPDATED]".format(
+                    existing_serial,
+                    serial_no,
+                )
+            )
+
+        else:
+            serial_cell.value = serial_no
+            serial_additions.append({
+                "row": row_idx,
+                "enclosure": enclosure_name,
+                "slot": bay_number,
+                "serial": serial_no,
+            })
+            print(
+                "  Serial Number : {} [ADDED]".format(serial_no)
+            )
+
+        for index, column_name in enumerate(vars.MAC_NIC_COLUMNS):
             worksheet_write.cell(
                 row=row_idx,
-                column=headers[
-                    column_name
-                ],
-            ).value = macs[
-                index
-            ]
-
-        print(
-            "  Serial Number : {}"
-            .format(
-                serial_no
-            )
-        )
+                column=headers[column_name],
+            ).value = macs[index]
 
         for index, mac in enumerate(
             macs,
@@ -1122,7 +1127,7 @@ def main():
         found_count = len([mac for mac in macs if mac])
 
         if (
-            serial_no in ("Data not found", "Serial Number not found")
+            not serial_found
             or found_count < vars.MAC_MAX_ADDRESSES
         ):
             summary_status = "Partial"
@@ -1138,9 +1143,8 @@ def main():
                 status=summary_status,
                 time_seconds=time.time() - item_start,
                 details=(
-                    "Serial={}; MACs={}/{}; ActiveOA={}"
-                    .format(
-                        serial_no,
+                    "Serial={}; MACs={}/{}; ActiveOA={}".format(
+                        serial_no if serial_found else "NOT FOUND",
                         found_count,
                         vars.MAC_MAX_ADDRESSES,
                         oa.active_ip or "Unknown",
@@ -1169,6 +1173,27 @@ def main():
     refresh_excel_formulas(
         excel_path
     )
+
+    if serial_changes:
+        print("\n" + "=" * 100)
+        print("SERIAL NUMBERS CHANGED")
+        print("=" * 100)
+        for change in serial_changes:
+            print(
+                "{} | Slot {} | Resource row {}: {} -> {}".format(
+                    change["enclosure"],
+                    change["slot"],
+                    change["row"],
+                    change["old_serial"],
+                    change["new_serial"],
+                )
+            )
+        print("=" * 100)
+
+    if serial_additions:
+        print("\nSerial numbers added to blank Excel cells: {}".format(
+            len(serial_additions)
+        ))
 
     print_summary_report(
         summary_rows,

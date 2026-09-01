@@ -1,660 +1,13 @@
-# BUILD_MARKER: FOREMAN_VM_FOLDER_RESOLUTION_V3_20260830
+# BUILD_MARKER: FOREMAN_VM_AFFINITY_V1_20260901
 
+import time
 from datetime import datetime, timedelta, timezone
-
-import threading
+from urllib.parse import quote
 
 import requests
 
-from functions import dns, foreman, vars
+from functions import dns, foreman, vars, vmware_affinity
 from functions.shared import is_valid
-
-
-VMWARE_FOLDER_CACHE_LOCK = threading.Lock()
-VMWARE_FOLDER_CACHE = None
-
-
-def _normalize_folder_path(
-    value,
-):
-    """Normalize slashes without changing folder-name case or spaces."""
-    if not is_valid(
-        value
-    ):
-        return ""
-
-    path = str(
-        value
-    ).strip().replace(
-        "\\",
-        "/",
-    )
-
-    while "//" in path:
-        path = path.replace(
-            "//",
-            "/",
-        )
-
-    if len(
-        path
-    ) > 1:
-        path = path.rstrip(
-            "/"
-        )
-
-    return path
-
-
-def _folder_relative_after_vm(
-    value,
-):
-    """
-    Return the part below a datacenter's VM root.
-
-    Examples:
-      /ISS/vm/A/B       -> A/B
-      /Datacenters/ISS/vm/A/B -> A/B
-      A/B               -> A/B
-    """
-    path = _normalize_folder_path(
-        value
-    )
-
-    if not path:
-        return ""
-
-    lowered = path.lower()
-
-    marker = "/vm/"
-
-    marker_index = lowered.find(
-        marker
-    )
-
-    if marker_index >= 0:
-        return path[
-            marker_index
-            + len(
-                marker
-            ):
-        ].strip(
-            "/"
-        )
-
-    if lowered.endswith(
-        "/vm"
-    ):
-        return ""
-
-    return path.strip(
-        "/"
-    )
-
-
-def _canonical_vm_folder_candidates(
-    value,
-):
-    """
-    Produce compatible vSphere/Fog folder-path variants.
-
-    The Excel data can contain the path users naturally see in vSphere, e.g.:
-        /ISS/vm/MTR-RTR Project/TVS/Python-Test
-
-    Fog/Foreman commonly exposes the same inventory folder as:
-        /Datacenters/ISS/vm/MTR-RTR Project/TVS/Python-Test
-
-    Foreman itself can also expose a relative full_path. We therefore resolve
-    against Foreman's own available_folders API rather than assuming one
-    format.
-    """
-    raw = _normalize_folder_path(
-        value
-    )
-
-    if not raw:
-        return []
-
-    candidates = []
-
-    def add(
-        candidate,
-    ):
-        normalized = _normalize_folder_path(
-            candidate
-        )
-
-        if (
-            normalized
-            and normalized
-            not in candidates
-        ):
-            candidates.append(
-                normalized
-            )
-
-    add(
-        raw
-    )
-
-    if not raw.startswith(
-        "/"
-    ):
-        add(
-            "/" + raw
-        )
-
-    lowered = raw.lower()
-
-    # Excel/vSphere UI-style path:
-    #   /ISS/vm/Folder/Subfolder
-    # Convert to the canonical vSphere inventory path:
-    #   /Datacenters/ISS/vm/Folder/Subfolder
-    parts = [
-        part
-        for part in raw.strip(
-            "/"
-        ).split(
-            "/"
-        )
-        if part
-    ]
-
-    if (
-        len(
-            parts
-        ) >= 2
-        and parts[
-            0
-        ].lower()
-        != "datacenters"
-        and parts[
-            1
-        ].lower()
-        == "vm"
-    ):
-        add(
-            "/Datacenters/{}".format(
-                raw
-                if raw.startswith("/")
-                else "/" + raw
-            )
-        )
-
-    # Already a full inventory path but missing the leading slash.
-    if lowered.startswith(
-        "datacenters/"
-    ):
-        add(
-            "/" + raw
-        )
-
-    relative = _folder_relative_after_vm(
-        raw
-    )
-
-    if relative:
-        add(
-            relative
-        )
-        add(
-            "/" + relative
-        )
-
-    return candidates
-
-
-def _foreman_available_vmware_folders():
-    """
-    Retrieve and cache the folders that Foreman can actually see through the
-    configured VMware compute resource.
-
-    This is deliberately done through Foreman, not directly against vCenter,
-    so validation uses the exact same vSphere credentials/datacenter scope that
-    Foreman will use during VM creation.
-    """
-    global VMWARE_FOLDER_CACHE
-
-    with VMWARE_FOLDER_CACHE_LOCK:
-
-        if VMWARE_FOLDER_CACHE is not None:
-            return VMWARE_FOLDER_CACHE
-
-        compute_id = get_compute_id()
-
-        endpoint = (
-            "{}/api/v2/compute_resources/{}/available_folders"
-            .format(
-                vars.FOREMAN_URL.rstrip(
-                    "/"
-                ),
-                compute_id,
-            )
-        )
-
-        folders = []
-        page = 1
-
-        while True:
-
-            response = requests.get(
-                endpoint,
-                auth=(
-                    vars.USER,
-                    vars.PASSWORD,
-                ),
-                headers={
-                    "Content-Type":
-                        "application/json",
-
-                    "Accept":
-                        "application/json",
-                },
-                params={
-                    "page":
-                        page,
-
-                    "per_page":
-                        1000,
-                },
-                verify=vars.VERIFY_SSL,
-                timeout=(
-                    vars.HTTP_CONNECT_TIMEOUT,
-                    vars.HTTP_READ_TIMEOUT,
-                ),
-            )
-
-            if response.status_code != 200:
-                raise RuntimeError(
-                    "Unable to query VMware folders from Foreman "
-                    "compute resource '{}'. HTTP {}: {}"
-                    .format(
-                        vars.COMPUTE_RESOURCE,
-                        response.status_code,
-                        response.text[:800],
-                    )
-                )
-
-            try:
-                data = response.json()
-            except (
-                TypeError,
-                ValueError,
-            ):
-                raise RuntimeError(
-                    "Foreman available_folders returned invalid JSON."
-                )
-
-            if not isinstance(
-                data,
-                dict,
-            ):
-                raise RuntimeError(
-                    "Foreman available_folders returned an "
-                    "unexpected JSON structure."
-                )
-
-            page_results = data.get(
-                "results",
-                [],
-            )
-
-            if not isinstance(
-                page_results,
-                list,
-            ):
-                raise RuntimeError(
-                    "Foreman available_folders response does not "
-                    "contain a results list."
-                )
-
-            folders.extend(
-                page_results
-            )
-
-            total = data.get(
-                "total"
-            )
-
-            if not page_results:
-                break
-
-            if (
-                isinstance(
-                    total,
-                    int,
-                )
-                and len(
-                    folders
-                )
-                >= total
-            ):
-                break
-
-            # A short page is also an end-of-results indication.
-            if len(
-                page_results
-            ) < 1000:
-                break
-
-            page += 1
-
-        VMWARE_FOLDER_CACHE = folders
-
-        print(
-            "Foreman VMware folder inventory loaded: "
-            "{} folder(s) visible through compute resource '{}'."
-            .format(
-                len(
-                    folders
-                ),
-                vars.COMPUTE_RESOURCE,
-            )
-        )
-
-        return VMWARE_FOLDER_CACHE
-
-
-def _folder_result_paths(
-    folder,
-):
-    """Return all path-like values exposed by Foreman's folder object."""
-    values = []
-
-    if not isinstance(
-        folder,
-        dict,
-    ):
-        return values
-
-    for key in (
-        "full_path",
-        "path",
-        "id",
-    ):
-
-        value = _normalize_folder_path(
-            folder.get(
-                key
-            )
-        )
-
-        if (
-            value
-            and value not in values
-        ):
-            values.append(
-                value
-            )
-
-    return values
-
-
-def _folder_path_to_send(
-    folder,
-):
-    """
-    Prefer Foreman's full_path because it is the provider's actual inventory
-    path. Fall back to path/id only for older Foreman/fog response formats.
-    """
-    if not isinstance(
-        folder,
-        dict,
-    ):
-        return ""
-
-    for key in (
-        "full_path",
-        "path",
-        "id",
-    ):
-
-        value = _normalize_folder_path(
-            folder.get(
-                key
-            )
-        )
-
-        if value:
-            return value
-
-    return ""
-
-
-def resolve_vmware_folder_path(
-    excel_folder,
-):
-    """
-    Resolve Excel vm_folder to a path Foreman/Fog has confirmed exists.
-
-    Matching order:
-      1. exact match against full_path/path/id
-      2. match by path relative to the datacenter's /vm root
-      3. unique leaf folder-name match
-
-    An ambiguous leaf-name match fails rather than risking placement in the
-    wrong VMware folder.
-    """
-    raw = _normalize_folder_path(
-        excel_folder
-    )
-
-    if not raw:
-        raise ValueError(
-            "vm_folder is empty"
-        )
-
-    candidates = _canonical_vm_folder_candidates(
-        raw
-    )
-
-    folders = _foreman_available_vmware_folders()
-
-    normalized_candidates = {
-        candidate.lower()
-        for candidate in candidates
-    }
-
-    # ---------------------------------------------------------------
-    # 1. Exact path/id match.
-    # ---------------------------------------------------------------
-    for folder in folders:
-
-        for result_path in _folder_result_paths(
-            folder
-        ):
-
-            if (
-                result_path.lower()
-                in normalized_candidates
-            ):
-
-                resolved = _folder_path_to_send(
-                    folder
-                )
-
-                if resolved:
-                    return (
-                        resolved,
-                        folder,
-                    )
-
-    # ---------------------------------------------------------------
-    # 2. Match the relative path under the datacenter VM root.
-    # ---------------------------------------------------------------
-    requested_relative = (
-        _folder_relative_after_vm(
-            raw
-        )
-    )
-
-    relative_matches = []
-
-    if requested_relative:
-
-        requested_relative_key = (
-            requested_relative
-            .strip(
-                "/"
-            )
-            .lower()
-        )
-
-        for folder in folders:
-
-            for result_path in _folder_result_paths(
-                folder
-            ):
-
-                result_relative = (
-                    _folder_relative_after_vm(
-                        result_path
-                    )
-                )
-
-                if (
-                    result_relative
-                    and result_relative
-                    .strip(
-                        "/"
-                    )
-                    .lower()
-                    == requested_relative_key
-                ):
-
-                    relative_matches.append(
-                        folder
-                    )
-                    break
-
-    # De-duplicate by the provider path we would actually send.
-    unique_relative = {}
-
-    for folder in relative_matches:
-
-        send_path = _folder_path_to_send(
-            folder
-        )
-
-        if send_path:
-            unique_relative[
-                send_path.lower()
-            ] = folder
-
-    if len(
-        unique_relative
-    ) == 1:
-
-        folder = list(
-            unique_relative.values()
-        )[0]
-
-        return (
-            _folder_path_to_send(
-                folder
-            ),
-            folder,
-        )
-
-    if len(
-        unique_relative
-    ) > 1:
-
-        raise ValueError(
-            "vm_folder '{}' is ambiguous in Foreman. "
-            "Multiple VMware folders match the relative path '{}': {}"
-            .format(
-                raw,
-                requested_relative,
-                ", ".join(
-                    sorted(
-                        _folder_path_to_send(
-                            folder
-                        )
-                        for folder in unique_relative.values()
-                    )
-                ),
-            )
-        )
-
-    # ---------------------------------------------------------------
-    # 3. Last-resort unique leaf-name match.
-    # ---------------------------------------------------------------
-    leaf = raw.strip(
-        "/"
-    ).split(
-        "/"
-    )[-1]
-
-    leaf_matches = [
-        folder
-        for folder in folders
-        if str(
-            folder.get(
-                "name",
-                "",
-            )
-        ).strip().lower()
-        == leaf.lower()
-    ]
-
-    if len(
-        leaf_matches
-    ) == 1:
-
-        folder = leaf_matches[
-            0
-        ]
-
-        return (
-            _folder_path_to_send(
-                folder
-            ),
-            folder,
-        )
-
-    if len(
-        leaf_matches
-    ) > 1:
-
-        raise ValueError(
-            "vm_folder '{}' could not be matched by full path, "
-            "and leaf folder '{}' is not unique. Matching folders: {}"
-            .format(
-                raw,
-                leaf,
-                ", ".join(
-                    sorted(
-                        _folder_path_to_send(
-                            folder
-                        )
-                        for folder in leaf_matches
-                    )
-                ),
-            )
-        )
-
-    canonical_hint = (
-        candidates[
-            1
-        ]
-        if len(
-            candidates
-        ) > 1
-        else raw
-    )
-
-    raise ValueError(
-        "VMware folder '{}' was not found through Foreman compute "
-        "resource '{}'. Foreman can only create into folders visible "
-        "through that compute resource. Candidate vSphere inventory "
-        "path: '{}'."
-        .format(
-            raw,
-            vars.COMPUTE_RESOURCE,
-            canonical_hint,
-        )
-    )
 
 
 def get_compute_id():
@@ -665,26 +18,10 @@ def get_compute_id():
 
 
 def get_image_id(image_name):
-    """Resolve the Foreman image/template configured on the VM Excel row."""
-    if not is_valid(
-        image_name
-    ):
-        raise ValueError(
-            "VM image/template name is empty. Required Excel column: {}"
-            .format(
-                vars.VM_IMAGE_NAME_COLUMN
-            )
-        )
-
     compute_id = get_compute_id()
-
     return foreman.get_cached_resource_id(
-        "api/v2/compute_resources/{}/images".format(
-            compute_id
-        ),
-        str(
-            image_name
-        ).strip(),
+        "api/v2/compute_resources/{}/images".format(compute_id),
+        image_name,
     )
 
 
@@ -706,41 +43,19 @@ def sched_ansible_role(hostname, delay):
 
     try:
         start_time = (
-            datetime.now(
-                timezone.utc
-            )
-            + timedelta(
-                seconds=int(
-                    delay
-                )
-            )
-        ).isoformat().replace(
-            "+00:00",
-            "Z",
-        )
-
-        result[
-            "scheduled_time"
-        ] = start_time
+            datetime.now(timezone.utc) + timedelta(seconds=int(delay))
+        ).isoformat().replace("+00:00", "Z")
+        result["scheduled_time"] = start_time
 
         payload = {
             "job_invocation": {
-                "job_template_id": (
-                    get_ansible_job_id()
-                ),
+                "job_template_id": get_ansible_job_id(),
                 "target_hosts": hostname,
                 "targeting_type": vars.ANSIBLE_TARGETING_TYPE,
-                "search_query": (
-                    "name = {}".format(
-                        hostname
-                    )
-                ),
-                "scheduling": {
-                    "start_at": start_time
-                },
+                "search_query": "name = {}".format(hostname),
+                "scheduling": {"start_at": start_time},
                 "description": (
-                    "Scheduled Ansible run for {} "
-                    "after provisioning".format(
+                    "Scheduled Ansible run for {} after provisioning".format(
                         hostname
                     )
                 ),
@@ -750,102 +65,212 @@ def sched_ansible_role(hostname, delay):
             }
         }
 
-        response = foreman.post_job_invocation(
-            payload
-        )
-
+        response = foreman.post_job_invocation(payload)
         if response.status_code == 201:
             message = (
-                "Ansible job for {} successfully scheduled "
-                "to run at {}".format(
+                "Ansible job for {} successfully scheduled to run at {}".format(
                     hostname,
                     start_time,
                 )
             )
-
-            print(
-                message
-            )
-
-            result.update({
-                "success": True,
-                "message": message,
-            })
-
+            print(message)
+            result.update({"success": True, "message": message})
             return result
 
-        message = (
-            "Failed to schedule Ansible run job for {}. "
-            "HTTP {}: {}".format(
+        result["message"] = (
+            "Failed to schedule Ansible run job for {}. HTTP {}: {}".format(
                 hostname,
                 response.status_code,
                 response.text,
             )
         )
-
-        print(
-            message
+    except requests.exceptions.Timeout as error:
+        result["message"] = (
+            "Timeout while scheduling Ansible job for {}: {}".format(
+                hostname,
+                error,
+            )
+        )
+    except requests.exceptions.RequestException as error:
+        result["message"] = (
+            "HTTP/connection error while scheduling Ansible job for {}: {}"
+            .format(hostname, error)
+        )
+    except Exception as error:
+        result["message"] = (
+            "Error scheduling Ansible run job for {}: {}".format(
+                hostname,
+                error,
+            )
         )
 
-        result[
-            "message"
-        ] = message
+    print(result["message"])
+    return result
+
+
+def _get_affinity_group(vm):
+    """Return a normalized optional affinity group or an empty string."""
+    value = vm.get(vars.VM_AFFINITY_GROUP_COLUMN)
+    return str(value).strip() if is_valid(value) else ""
+
+
+def _power_state_from_response(response):
+    """Extract a normalized Foreman power state from an HTTP response."""
+    try:
+        data = response.json()
+    except Exception:
+        return ""
+
+    if not isinstance(data, dict):
+        return ""
+
+    value = data.get("power", data.get("state", ""))
+    if isinstance(value, bool):
+        return "on" if value else "off"
+
+    return str(value or "").strip().lower().replace("_", "")
+
+
+def _is_powered_on_state(state):
+    return state in ("on", "running", "poweredon", "true", "1")
+
+
+def _power_on_vm_via_foreman(hostname):
+    """Start a Foreman-managed VM and verify that it reaches power state On."""
+    result = {
+        "success": False,
+        "status": "Failed",
+        "message": "",
+    }
+    host_id = quote(str(hostname).strip(), safe="")
+    url = "{}/api/v2/hosts/{}/power".format(
+        vars.FOREMAN_URL.rstrip("/"),
+        host_id,
+    )
+    timeout = (
+        vars.HTTP_CONNECT_TIMEOUT,
+        vars.HTTP_READ_TIMEOUT,
+    )
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.put(
+            url,
+            auth=(vars.USER, vars.PASSWORD),
+            headers=headers,
+            json={"power_action": "start"},
+            verify=vars.VERIFY_SSL,
+            timeout=timeout,
+        )
+
+        if response.status_code not in (200, 201, 202):
+            result["message"] = (
+                "Foreman failed to start VM '{}'. HTTP {}: {}".format(
+                    hostname,
+                    response.status_code,
+                    response.text,
+                )
+            )
+            return result
+
+        state = _power_state_from_response(response)
+        if _is_powered_on_state(state):
+            result.update({
+                "success": True,
+                "status": "Successful",
+                "message": "VM '{}' powered on successfully".format(hostname),
+            })
+            return result
+
+        last_message = ""
+        for attempt in range(1, vars.VM_AFFINITY_POWER_VERIFY_ATTEMPTS + 1):
+            try:
+                status_response = requests.get(
+                    url,
+                    auth=(vars.USER, vars.PASSWORD),
+                    headers={"Accept": "application/json"},
+                    params={
+                        "timeout": str(
+                            vars.VM_AFFINITY_POWER_STATUS_TIMEOUT_SECONDS
+                        )
+                    },
+                    verify=vars.VERIFY_SSL,
+                    timeout=timeout,
+                )
+
+                if status_response.status_code == 200:
+                    state = _power_state_from_response(status_response)
+                    if _is_powered_on_state(state):
+                        result.update({
+                            "success": True,
+                            "status": "Successful",
+                            "message": (
+                                "VM '{}' powered on successfully; verified "
+                                "after attempt {}/{}".format(
+                                    hostname,
+                                    attempt,
+                                    vars.VM_AFFINITY_POWER_VERIFY_ATTEMPTS,
+                                )
+                            ),
+                        })
+                        return result
+
+                    last_message = "reported power state '{}'".format(
+                        state or "unknown"
+                    )
+                else:
+                    last_message = "status HTTP {}: {}".format(
+                        status_response.status_code,
+                        status_response.text,
+                    )
+            except Exception as error:
+                last_message = "power-status check failed: {}".format(error)
+
+            if attempt < vars.VM_AFFINITY_POWER_VERIFY_ATTEMPTS:
+                time.sleep(vars.VM_AFFINITY_POWER_VERIFY_DELAY_SECONDS)
+
+        result["message"] = (
+            "Foreman accepted the start request for VM '{}', but power-on "
+            "could not be verified after {} attempts ({})".format(
+                hostname,
+                vars.VM_AFFINITY_POWER_VERIFY_ATTEMPTS,
+                last_message or "no power state returned",
+            )
+        )
+        return result
 
     except requests.exceptions.Timeout as error:
-        result[
-            "message"
-        ] = (
-            "Timeout while scheduling Ansible job for {}: {}"
-            .format(
+        result["message"] = (
+            "Timeout while starting VM '{}' through Foreman: {}".format(
                 hostname,
                 error,
             )
         )
-
     except requests.exceptions.RequestException as error:
-        result[
-            "message"
-        ] = (
-            "HTTP/connection error while scheduling Ansible "
-            "job for {}: {}".format(
-                hostname,
-                error,
-            )
+        result["message"] = (
+            "HTTP/connection error while starting VM '{}' through Foreman: {}"
+            .format(hostname, error)
         )
-
     except Exception as error:
-        result[
-            "message"
-        ] = (
-            "Error scheduling Ansible run job for {}: {}"
-            .format(
+        result["message"] = (
+            "Error while starting VM '{}' through Foreman: {}".format(
                 hostname,
                 error,
             )
         )
-
-    print(
-        result[
-            "message"
-        ]
-    )
 
     return result
 
 
 def create(vm):
-    """Create/reuse a VM, process DNS and schedule Ansible."""
-    hostname = str(
-        vm.get(
-            "logical_name",
-            "UNKNOWN",
-        )
-    ).strip()
-
-    short_name = hostname.split(
-        ".",
-        1,
-    )[0]
+    """Create/reuse a VM, process optional affinity, DNS and Ansible."""
+    hostname = str(vm.get("logical_name", "UNKNOWN")).strip()
+    short_name = hostname.split(".", 1)[0]
+    affinity_group = _get_affinity_group(vm)
+    affinity_required = bool(affinity_group)
 
     result = {
         "success": False,
@@ -855,6 +280,14 @@ def create(vm):
         "foreman_success": False,
         "foreman_status": "Failed",
         "foreman_message": "",
+        "affinity_required": affinity_required,
+        "affinity_success": not affinity_required,
+        "affinity_status": "Pending" if affinity_required else "Not Required",
+        "affinity_message": "",
+        "power_required": affinity_required,
+        "power_success": not affinity_required,
+        "power_status": "Pending" if affinity_required else "Foreman Auto",
+        "power_message": "",
         "dns_success": False,
         "dns_status": "Not Run",
         "dns_message": "",
@@ -865,101 +298,51 @@ def create(vm):
     }
 
     try:
-        existing = foreman.get_host(
-            hostname,
-            short_name,
-        )
-
-        already_exists = bool(
-            existing
-        )
+        existing = foreman.get_host(hostname, short_name)
+        already_exists = bool(existing)
 
         if already_exists:
-            _set_existing_vm(
-                result,
-                hostname,
-                existing,
-            )
-
+            _set_existing_vm(result, hostname, existing)
         else:
-            payload = create_payload(
-                vm
-            )
+            payload = create_payload(vm)
 
-            with foreman.host_creation_slot(
-                hostname
-            ):
+            with foreman.host_creation_slot(hostname):
                 # Final existence check under the same creation lock.
-                existing = foreman.get_host(
-                    hostname,
-                    short_name,
-                )
+                existing = foreman.get_host(hostname, short_name)
 
                 if existing:
                     already_exists = True
-
-                    _set_existing_vm(
-                        result,
-                        hostname,
-                        existing,
-                    )
-
+                    _set_existing_vm(result, hostname, existing)
                 else:
-                    response = foreman.create_host(
-                        payload
-                    )
+                    response = foreman.create_host(payload)
 
                     if response.status_code == 201:
                         try:
-                            created = (
-                                foreman.verify_created_managed_host(
-                                    response=response,
-                                    expected_names=(
-                                        hostname,
-                                        short_name,
-                                    ),
-                                    expected_organization_id=(
-                                        payload["host"].get(
-                                            "organization_id"
-                                        )
-                                    ),
-                                    expected_location_id=(
-                                        payload["host"].get(
-                                            "location_id"
-                                        )
-                                    ),
-                                )
+                            created = foreman.verify_created_managed_host(
+                                response=response,
+                                expected_names=(hostname, short_name),
+                                expected_organization_id=(
+                                    payload["host"].get("organization_id")
+                                ),
+                                expected_location_id=(
+                                    payload["host"].get("location_id")
+                                ),
                             )
-
                         except Exception as verify_error:
-                            host_id = (
-                                foreman.get_response_host_id(
-                                    response
-                                )
-                            )
-
+                            host_id = foreman.get_response_host_id(response)
                             message = (
-                                "CRITICAL: Foreman returned HTTP 201 "
-                                "for VM {}, but POST-CREATE "
-                                "VERIFICATION FAILED. Foreman host ID: "
-                                "{}. Error: {}. DNS and Ansible will "
-                                "NOT run. Check Foreman before rerunning "
-                                "this VM because manual cleanup may be "
-                                "required.".format(
+                                "CRITICAL: Foreman returned HTTP 201 for VM {}, "
+                                "but POST-CREATE VERIFICATION FAILED. Foreman "
+                                "host ID: {}. Error: {}. DNS, affinity and "
+                                "Ansible will NOT run. Check Foreman before "
+                                "rerunning this VM because manual cleanup may "
+                                "be required.".format(
                                     hostname,
-                                    (
-                                        host_id
-                                        if host_id
-                                        else "Unknown"
-                                    ),
+                                    host_id if host_id else "Unknown",
                                     verify_error,
                                 )
                             )
-
-                            print(
-                                message
-                            )
-
+                            print(message)
                             result.update({
                                 "foreman_success": False,
                                 "foreman_status": "Failed",
@@ -967,189 +350,183 @@ def create(vm):
                                 "message": message,
                                 "details": message,
                             })
-
                             return result
 
-                        foreman_message = (
-                            foreman.describe_host(
-                                created
-                            )
-                        )
-
+                        foreman_message = foreman.describe_host(created)
                         result.update({
                             "foreman_success": True,
                             "foreman_status": "Successful",
                             "foreman_message": foreman_message,
                         })
-
                         print(
-                            "Successfully created {} in Foreman."
-                            .format(
+                            "Successfully created {} in Foreman.".format(
                                 hostname
                             )
                         )
-
                         print(
-                            "POST-CREATE VERIFICATION PASSED: {}"
-                            .format(
+                            "POST-CREATE VERIFICATION PASSED: {}".format(
                                 foreman_message
                             )
                         )
 
-                    elif foreman.is_duplicate_host_response(
-                        response
-                    ):
-                        existing = foreman.get_host(
-                            hostname,
-                            short_name,
-                        )
+                    elif foreman.is_duplicate_host_response(response):
+                        existing = foreman.get_host(hostname, short_name)
 
                         if existing:
                             already_exists = True
-
                             _set_existing_vm(
                                 result,
                                 hostname,
                                 existing,
                                 duplicate_response=True,
                             )
-
                         else:
                             message = (
-                                "Foreman returned duplicate-name HTTP "
-                                "422 for VM {}, but an exact managed-host "
-                                "lookup found no matching host. Treating "
-                                "this as FAILED. This can indicate a "
-                                "hidden/orphan Host::Base record. "
-                                "Response: {}".format(
+                                "Foreman returned duplicate-name HTTP 422 for "
+                                "VM {}, but an exact managed-host lookup found "
+                                "no matching host. Treating this as FAILED. "
+                                "This can indicate a hidden/orphan Host::Base "
+                                "record. Response: {}".format(
                                     hostname,
                                     response.text,
                                 )
                             )
-
-                            print(
-                                message
-                            )
-
+                            print(message)
                             result.update({
                                 "message": message,
                                 "details": message,
                             })
-
                             return result
-
                     else:
                         message = (
-                            "Failed to create {}. HTTP {}: {}"
-                            .format(
+                            "Failed to create {}. HTTP {}: {}".format(
                                 hostname,
                                 response.status_code,
                                 response.text,
                             )
                         )
-
-                        print(
-                            message
-                        )
-
+                        print(message)
                         result.update({
                             "message": message,
                             "details": message,
                         })
-
                         return result
 
         # Foreman creation lock has been released here.
-        _process_dns(
-            vm,
-            result,
-        )
+        if already_exists:
+            result.update({
+                "power_required": False,
+                "power_success": True,
+                "power_status": "Skipped",
+                "power_message": "VM already exists; power state not changed",
+            })
+
+            if affinity_required:
+                result.update({
+                    "affinity_success": True,
+                    "affinity_status": "Skipped",
+                    "affinity_message": (
+                        "VM already exists; affinity-group membership was "
+                        "not modified"
+                    ),
+                })
+        elif affinity_required:
+            print(
+                "VM {} requests affinity group '{}'. Foreman created the VM "
+                "powered off; applying vSphere group membership before "
+                "power-on.".format(hostname, affinity_group)
+            )
+
+            affinity_result = vmware_affinity.assign_vm_to_group(
+                hostname,
+                affinity_group,
+            )
+            result.update({
+                "affinity_success": affinity_result["success"],
+                "affinity_status": affinity_result["status"],
+                "affinity_message": affinity_result["message"],
+            })
+
+            if affinity_result["success"]:
+                print(affinity_result["message"])
+            else:
+                print(
+                    "WARNING: {}. VM will still be started.".format(
+                        affinity_result["message"]
+                    )
+                )
+
+            power_result = _power_on_vm_via_foreman(hostname)
+            result.update({
+                "power_success": power_result["success"],
+                "power_status": power_result["status"],
+                "power_message": power_result["message"],
+            })
+
+            if power_result["success"]:
+                print(power_result["message"])
+            else:
+                print("ERROR: {}".format(power_result["message"]))
+
+        _process_dns(vm, result)
 
         if already_exists:
             result.update({
                 "ansible_success": True,
                 "ansible_status": "Skipped",
                 "ansible_message": (
-                    "VM already exists in Foreman; "
-                    "Ansible not rescheduled"
+                    "VM already exists in Foreman; Ansible not rescheduled"
                 ),
             })
-
             print(
-                "Skipping Ansible scheduling for existing "
-                "VM {}.".format(
+                "Skipping Ansible scheduling for existing VM {}.".format(
                     hostname
                 )
             )
-
-        else:
-            ansible_result = (
-                sched_ansible_role(
-                    hostname,
-                    vars.ANSIBLE_DELAY,
-                )
-            )
-
+        elif affinity_required and not result["power_success"]:
             result.update({
-                "ansible_success": (
-                    ansible_result[
-                        "success"
-                    ]
-                ),
-                "ansible_status": (
-                    "Successful"
-                    if ansible_result[
-                        "success"
-                    ]
-                    else "Failed"
-                ),
+                "ansible_success": False,
+                "ansible_status": "Not Run",
                 "ansible_message": (
-                    ansible_result[
-                        "message"
-                    ]
+                    "Ansible was not scheduled because VM power-on failed"
                 ),
             })
+            print(
+                "Skipping Ansible scheduling for {} because the VM could not "
+                "be verified as powered on.".format(hostname)
+            )
+        else:
+            ansible_result = sched_ansible_role(
+                hostname,
+                vars.ANSIBLE_DELAY,
+            )
+            result.update({
+                "ansible_success": ansible_result["success"],
+                "ansible_status": (
+                    "Successful" if ansible_result["success"] else "Failed"
+                ),
+                "ansible_message": ansible_result["message"],
+            })
 
-        _finalize_result(
-            result
-        )
-
+        _finalize_result(result)
         return result
 
     except Exception as error:
-        message = (
-            "Error processing Foreman VM {}: {}"
-            .format(
-                hostname,
-                error,
-            )
+        message = "Error processing Foreman VM {}: {}".format(
+            hostname,
+            error,
         )
-
-        print(
-            message
-        )
-
+        print(message)
         result.update({
             "message": message,
             "details": message,
         })
-
         return result
 
 
-def _set_existing_vm(
-    result,
-    hostname,
-    existing,
-    duplicate_response=False,
-):
+def _set_existing_vm(result, hostname, existing, duplicate_response=False):
     """Mark an exact managed VM host as already existing."""
-    foreman_message = (
-        foreman.describe_host(
-            existing
-        )
-    )
-
+    foreman_message = foreman.describe_host(existing)
     result.update({
         "foreman_success": True,
         "foreman_status": "Already Exists",
@@ -1158,17 +535,15 @@ def _set_existing_vm(
 
     if duplicate_response:
         print(
-            "Foreman returned duplicate-name HTTP 422 for {}, "
-            "and exact VM verification succeeded: {}"
-            .format(
+            "Foreman returned duplicate-name HTTP 422 for {}, and exact VM "
+            "verification succeeded: {}".format(
                 hostname,
                 foreman_message,
             )
         )
     else:
         print(
-            "Foreman VM {} already exists: {}"
-            .format(
+            "Foreman VM {} already exists: {}".format(
                 hostname,
                 foreman_message,
             )
@@ -1177,176 +552,100 @@ def _set_existing_vm(
 
 def _process_dns(vm, result):
     """Run DNS processing and update the VM result."""
-    hostname = result[
-        "hostname"
-    ]
+    hostname = result["hostname"]
 
     try:
-        dns_result = dns.create_dns_records(
-            vm
-        )
-
-        dns_success = (
-            dns_result.get(
-                "status"
-            ) == "Successful"
-        )
-
-        dns_message = dns_result.get(
-            "details",
-            "",
-        )
+        dns_result = dns.create_dns_records(vm)
+        dns_success = dns_result.get("status") == "Successful"
+        dns_message = dns_result.get("details", "")
 
         result.update({
             "dns_success": dns_success,
-            "dns_status": dns_result.get(
-                "status",
-                "Failed",
-            ),
+            "dns_status": dns_result.get("status", "Failed"),
             "dns_message": dns_message,
         })
 
         if dns_success:
-            suffix = (
-                ": {}".format(
-                    dns_message
-                )
-                if dns_message
-                else ""
-            )
-
-            print(
-                "DNS creation completed for {}{}"
-                .format(
-                    hostname,
-                    suffix,
-                )
-            )
-
+            suffix = ": {}".format(dns_message) if dns_message else ""
+            print("DNS creation completed for {}{}".format(hostname, suffix))
         else:
             print(
-                "WARNING: Foreman stage completed for {}, "
-                "but DNS failed: {}".format(
+                "WARNING: Foreman stage completed for {}, but DNS failed: {}"
+                .format(
                     hostname,
-                    (
-                        dns_message
-                        or "Unknown DNS error"
-                    ),
+                    dns_message or "Unknown DNS error",
                 )
             )
-
     except Exception as error:
         result.update({
             "dns_success": False,
             "dns_status": "Failed",
-            "dns_message": str(
-                error
-            ),
+            "dns_message": str(error),
         })
-
         print(
-            "WARNING: Foreman stage completed for {}, but DNS "
-            "raised an exception: {}".format(
-                hostname,
-                error,
-            )
+            "WARNING: Foreman stage completed for {}, but DNS raised an "
+            "exception: {}".format(hostname, error)
         )
+
+
+def _component_text(status, message):
+    return "{} ({})".format(status, message) if message else status
 
 
 def _finalize_result(result):
-    """Set overall VM provisioning status."""
-    foreman_text = result[
-        "foreman_status"
-    ]
-
-    if result[
-        "foreman_message"
-    ]:
-        foreman_text = "{} ({})".format(
-            foreman_text,
-            result[
-                "foreman_message"
-            ],
-        )
-
+    """Set overall VM provisioning status, including affinity warnings."""
     parts = [
         "Foreman: {}".format(
-            foreman_text
+            _component_text(
+                result["foreman_status"],
+                result["foreman_message"],
+            )
+        ),
+        "Affinity: {}".format(
+            _component_text(
+                result["affinity_status"],
+                result["affinity_message"],
+            )
+        ),
+        "Power: {}".format(
+            _component_text(
+                result["power_status"],
+                result["power_message"],
+            )
         ),
         "DNS: {}".format(
-            result[
-                "dns_status"
-            ]
+            _component_text(
+                result["dns_status"],
+                result["dns_message"],
+            )
         ),
         "Ansible: {}".format(
-            result[
-                "ansible_status"
-            ]
+            _component_text(
+                result["ansible_status"],
+                result["ansible_message"],
+            )
         ),
     ]
 
-    failures = []
+    power_ok = (
+        not result.get("power_required", False)
+        or result.get("power_success", False)
+    )
+    affinity_warning = (
+        result.get("affinity_required", False)
+        and result.get("affinity_status") == "Warning"
+    )
 
-    if (
-        not result[
-            "dns_success"
-        ]
-        and result[
-            "dns_message"
-        ]
-    ):
-        failures.append(
-            "DNS Error: {}".format(
-                result[
-                    "dns_message"
-                ]
-            )
-        )
-
-    if (
-        not result[
-            "ansible_success"
-        ]
-        and result[
-            "ansible_message"
-        ]
-    ):
-        failures.append(
-            "Ansible Error: {}".format(
-                result[
-                    "ansible_message"
-                ]
-            )
-        )
-
-    result[
-        "success"
-    ] = all((
-        result[
-            "foreman_success"
-        ],
-        result[
-            "dns_success"
-        ],
-        result[
-            "ansible_success"
-        ],
+    components_ok = all((
+        result["foreman_success"],
+        power_ok,
+        result["dns_success"],
+        result["ansible_success"],
     ))
+    result["success"] = components_ok and not affinity_warning
+    result["status"] = "Successful" if result["success"] else "Partial"
 
-    result[
-        "status"
-    ] = (
-        "Successful"
-        if result[
-            "success"
-        ]
-        else "Partial"
-    )
-
-    details = "; ".join(
-        parts + failures
-    )
-
+    details = "; ".join(parts)
     result.update({
         "message": details,
         "details": details,
@@ -1354,436 +653,113 @@ def _finalize_result(result):
 
 
 def create_payload(vm):
-    """Build a Foreman VMware VM payload from the selected Excel row."""
-    hostname = vm.get(
-        "logical_name",
-        "UNKNOWN",
+    """Build a Foreman VM payload."""
+    hostname = vm.get("logical_name", "UNKNOWN")
+
+    if not is_valid(vm.get("logical_name")):
+        raise ValueError("Missing logical_name for VM")
+
+    hostgroup_name = foreman.gethostgroup(
+        vm["subsystems"],
+        vm["function"],
+        vm["variation"],
     )
 
-    if not is_valid(
-        vm.get(
-            "logical_name"
-        )
-    ):
+    if not is_valid(hostgroup_name):
         raise ValueError(
-            "Missing logical_name for VM"
-        )
-
-    image_name = vm.get(
-        vars.VM_IMAGE_NAME_COLUMN
-    )
-
-    vm_folder = vm.get(
-        vars.VM_FOLDER_COLUMN
-    )
-
-    if not is_valid(
-        image_name
-    ):
-        raise ValueError(
-            "VM {} is missing required {}."
-            .format(
-                hostname,
-                vars.VM_IMAGE_NAME_COLUMN,
+            "No Foreman hostgroup mapping found for {} / {} / {}".format(
+                vm["subsystems"],
+                vm["function"],
+                vm["variation"],
             )
         )
 
-    if not is_valid(
-        vm_folder
-    ):
-        raise ValueError(
-            "VM {} is missing required {}."
-            .format(
-                hostname,
-                vars.VM_FOLDER_COLUMN,
-            )
-        )
-
-    (
-        resolved_vm_folder,
-        resolved_folder_info,
-    ) = resolve_vmware_folder_path(
-        vm_folder
-    )
-
-    if (
-        _normalize_folder_path(
-            vm_folder
-        )
-        != _normalize_folder_path(
-            resolved_vm_folder
-        )
-    ):
-        print(
-            "VM {} VMware folder resolved: Excel='{}' -> Foreman='{}'"
-            .format(
-                hostname,
-                _normalize_folder_path(
-                    vm_folder
-                ),
-                resolved_vm_folder,
-            )
-        )
-    else:
-        print(
-            "VM {} VMware folder verified through Foreman: '{}'"
-            .format(
-                hostname,
-                resolved_vm_folder,
-            )
-        )
-
-    hostgroup_name = (
-        foreman.gethostgroup(
-            vm[
-                "subsystems"
-            ],
-            vm[
-                "function"
-            ],
-            vm[
-                "variation"
-            ],
-        )
-    )
-
-    if not is_valid(
-        hostgroup_name
-    ):
-        raise ValueError(
-            "No Foreman hostgroup mapping found for "
-            "{} / {} / {}".format(
-                vm[
-                    "subsystems"
-                ],
-                vm[
-                    "function"
-                ],
-                vm[
-                    "variation"
-                ],
-            )
-        )
-
-    organization_id, location_id = (
-        foreman.get_scope_ids()
-    )
-
-    compute_attributes = {
-        "cpus": int(
-            vm[
-                "cpu"
-            ]
-        ),
-
-        # Foreman VMware expects MB. Excel stores RAM in GB.
-        "memory_mb": int(
-            float(
-                vm[
-                    "ram_(gb)"
-                ]
-            )
-            * 1024
-        ),
-
-        "start":
-            vars.VM_START_ON_CREATE,
-
-        # VMware destination folder belongs under compute_attributes.
-        "path":
-            resolved_vm_folder,
-
-        "volumes_attributes":
-            [],
-    }
+    organization_id, location_id = foreman.get_scope_ids()
+    affinity_group = _get_affinity_group(vm)
+    start_on_create = "0" if affinity_group else vars.VM_START_ON_CREATE
+    image_name = str(vm[vars.VM_IMAGE_NAME_COLUMN]).strip()
 
     payload = {
         "host": {
-            "name":
-                vm[
-                    "logical_name"
-                ],
-
-            "hostgroup_id": (
-                foreman.get_cached_resource_id(
-                    "api/v2/hostgroups",
-                    hostgroup_name,
-                )
+            "name": vm["logical_name"],
+            "hostgroup_id": foreman.get_cached_resource_id(
+                "api/v2/hostgroups",
+                hostgroup_name,
             ),
-
-            "organization_id":
-                organization_id,
-
-            "location_id":
-                location_id,
-
-            "compute_resource_id": (
-                get_compute_id()
-            ),
-
-            # Per-row Foreman image/template from os_template_name.
-            "image_id": (
-                get_image_id(
-                    image_name
-                )
-            ),
-
-            "provision_method":
-                vars.VM_PROVISION_METHOD,
-
-            "managed":
-                True,
-
-            "compute_attributes":
-                compute_attributes,
-
-            "interfaces_attributes":
-                [],
-
-            "host_parameters_attributes": (
-                foreman.gethost_parameters(
-                    vm.get(
-                        "foreman_parameters",
-                        vars.EMPTY_VALUE,
-                    ),
-                    vm[
-                        "ntp1"
-                    ],
-                    vm[
-                        "ntp2"
-                    ],
-                )
+            "organization_id": organization_id,
+            "location_id": location_id,
+            "compute_resource_id": get_compute_id(),
+            "image_id": get_image_id(image_name),
+            "provision_method": vars.VM_PROVISION_METHOD,
+            "managed": True,
+            "path": vm[vars.VM_FOLDER_COLUMN],
+            "compute_attributes": {
+                "cpus": int(vm["cpu"]),
+                "memory_gb": int(vm["ram_(gb)"]),
+                "start": start_on_create,
+                "volumes_attributes": [],
+            },
+            "interfaces_attributes": [],
+            "host_parameters_attributes": foreman.gethost_parameters(
+                vm["foreman_parameters"],
+                vm.get("ntp1", vars.EMPTY_VALUE),
+                vm.get("ntp2", vars.EMPTY_VALUE),
             ),
         }
     }
 
-    print(
-        "VM {} Foreman settings: image='{}'; folder='{}'; "
-        "disk_type='{}'; cpu={}; ram_gb={}"
-        .format(
-            hostname,
-            str(
-                image_name
-            ).strip(),
-            resolved_vm_folder,
-            str(
-                vm.get(
-                    vars.VM_DISK_TYPE_COLUMN,
-                    "",
-                )
-            ).strip(),
-            vm[
-                "cpu"
-            ],
-            vm[
-                "ram_(gb)"
-            ],
-        )
-    )
+    _add_interfaces(payload, vm)
+    _add_disks(payload, vm)
 
-    _add_interfaces(
-        payload,
-        vm,
-    )
-
-    _add_disks(
-        payload,
-        vm,
-    )
-
-    if not payload[
-        "host"
-    ][
-        "compute_attributes"
-    ][
-        "volumes_attributes"
-    ]:
+    if not payload["host"]["compute_attributes"]["volumes_attributes"]:
         raise ValueError(
-            "VM {} has no valid disks configured"
-            .format(
-                hostname
-            )
+            "VM {} has no valid disks configured".format(hostname)
         )
 
     return payload
 
 
-def _vmware_disk_provisioning(
-    value,
-):
-    """
-    Convert Excel virtual_disk_type into Foreman VMware volume attributes.
-
-    VMware volume creation uses thin/eager_zero rather than a generic
-    storage_type field.
-    """
-    if not is_valid(
-        value
-    ):
-        raise ValueError(
-            "virtual_disk_type is empty"
-        )
-
-    normalized = str(
-        value
-    ).strip().lower()
-
-    normalized = normalized.replace(
-        "-",
-        " ",
-    ).replace(
-        "_",
-        " ",
-    )
-
-    normalized = " ".join(
-        normalized.split()
-    )
-
-    thin_values = {
-        "thin",
-        "thin provision",
-        "thin provisioned",
-        "thin provisioning",
-    }
-
-    thick_lazy_values = {
-        "thick",
-        "thick lazy",
-        "thick lazy zeroed",
-        "lazy zeroed thick",
-        "lazy zero thick",
-    }
-
-    thick_eager_values = {
-        "thick eager",
-        "thick eager zeroed",
-        "eager zeroed thick",
-        "eager zero thick",
-    }
-
-    if normalized in thin_values:
-        return {
-            "thin":
-                "true",
-
-            "eager_zero":
-                "false",
-        }
-
-    if normalized in thick_lazy_values:
-        return {
-            "thin":
-                "false",
-
-            "eager_zero":
-                "false",
-        }
-
-    if normalized in thick_eager_values:
-        return {
-            "thin":
-                "false",
-
-            "eager_zero":
-                "true",
-        }
-
-    raise ValueError(
-        "Unsupported virtual_disk_type '{}'. "
-        "Use Thin, Thick/Thick Lazy Zeroed, or Thick Eager Zeroed."
-        .format(
-            value
-        )
-    )
-
-
-
 def _add_interfaces(payload, vm):
     """Add VM network interfaces."""
-    hostname = vm.get(
-        "logical_name",
-        "UNKNOWN",
-    )
-
-    has_fe = is_valid(
-        vm.get(
-            "fe_ip_address"
-        )
-    )
-
-    has_me = is_valid(
-        vm.get(
-            "me_ip_address"
-        )
-    )
+    hostname = vm.get("logical_name", "UNKNOWN")
+    has_fe = is_valid(vm.get("fe_ip_address"))
+    has_me = is_valid(vm.get("me_ip_address"))
 
     if not has_fe:
         if has_me:
             raise ValueError(
-                "VM {} has a MiddleEnd IP address ({}) but "
-                "no FrontEnd IP address. MiddleEnd-only "
-                "provisioning is not defined.".format(
+                "VM {} has a MiddleEnd IP address ({}) but no FrontEnd IP "
+                "address. MiddleEnd-only provisioning is not defined.".format(
                     hostname,
-                    vm.get(
-                        "me_ip_address"
-                    ),
+                    vm.get("me_ip_address"),
                 )
             )
 
         raise ValueError(
-            "VM {} has no valid FrontEnd or MiddleEnd "
-            "IP address".format(
+            "VM {} has no valid FrontEnd or MiddleEnd IP address".format(
                 hostname
             )
         )
 
-    domain_id = (
-        foreman.get_cached_resource_id(
-            "api/domains",
-            vm[
-                "domain_name"
-            ],
-        )
+    domain_id = foreman.get_cached_resource_id(
+        "api/domains",
+        vm["domain_name"],
     )
-
-    fe_subnet_id = (
-        foreman.get_cached_resource_id(
-            "api/v2/subnets",
-            vm[
-                "fe_vlan_name"
-            ],
-        )
+    fe_subnet_id = foreman.get_cached_resource_id(
+        "api/v2/subnets",
+        vm["fe_vlan_name"],
     )
-
-    base_name = str(
-        vm[
-            "logical_name"
-        ]
-    ).replace(
-        ".{}".format(
-            vm[
-                "domain_name"
-            ]
-        ),
+    base_name = str(vm["logical_name"]).replace(
+        ".{}".format(vm["domain_name"]),
         "",
     )
 
     if has_me:
-        me_subnet_id = (
-            foreman.get_cached_resource_id(
-                "api/v2/subnets",
-                vm[
-                    "me_vlan_name"
-                ],
-            )
+        me_subnet_id = foreman.get_cached_resource_id(
+            "api/v2/subnets",
+            vm["me_vlan_name"],
         )
-
-        payload[
-            "host"
-        ][
-            "interfaces_attributes"
-        ].extend([
+        payload["host"]["interfaces_attributes"].extend([
             {
                 "primary": True,
                 "provision": True,
@@ -1791,14 +767,10 @@ def _add_interfaces(payload, vm):
                 "name": base_name,
                 "domain_id": domain_id,
                 "subnet_id": me_subnet_id,
-                "ip": vm[
-                    "me_ip_address"
-                ],
+                "ip": vm["me_ip_address"],
                 "compute_attributes": {
                     "type": vars.VM_NETWORK_ADAPTER_TYPE,
-                    "network": vm[
-                        "me_vlan_name"
-                    ],
+                    "network": vm["me_vlan_name"],
                 },
             },
             {
@@ -1806,77 +778,33 @@ def _add_interfaces(payload, vm):
                 "provision": False,
                 "managed": True,
                 "subnet_id": fe_subnet_id,
-                "ip": vm[
-                    "fe_ip_address"
-                ],
+                "ip": vm["fe_ip_address"],
                 "compute_attributes": {
                     "type": vars.VM_NETWORK_ADAPTER_TYPE,
-                    "network": vm[
-                        "fe_vlan_name"
-                    ],
+                    "network": vm["fe_vlan_name"],
                 },
             },
         ])
-
     else:
-        payload[
-            "host"
-        ][
-            "interfaces_attributes"
-        ].append({
+        payload["host"]["interfaces_attributes"].append({
             "primary": True,
             "provision": True,
             "managed": True,
             "name": base_name,
             "domain_id": domain_id,
             "subnet_id": fe_subnet_id,
-            "ip": vm[
-                "fe_ip_address"
-            ],
+            "ip": vm["fe_ip_address"],
             "compute_attributes": {
                 "type": vars.VM_NETWORK_ADAPTER_TYPE,
-                "network": vm[
-                    "fe_vlan_name"
-                ],
+                "network": vm["fe_vlan_name"],
             },
         })
 
 
 def _add_disks(payload, vm):
-    """Add system and optional data disks using Excel virtual_disk_type."""
-    hostname = vm.get(
-        "logical_name",
-        "UNKNOWN",
-    )
-
-    volumes = payload[
-        "host"
-    ][
-        "compute_attributes"
-    ][
-        "volumes_attributes"
-    ]
-
-    disk_type = vm.get(
-        vars.VM_DISK_TYPE_COLUMN
-    )
-
-    try:
-        provisioning = (
-            _vmware_disk_provisioning(
-                disk_type
-            )
-        )
-
-    except ValueError as exc:
-        raise ValueError(
-            "VM {}: {}"
-            .format(
-                hostname,
-                exc,
-            )
-        )
-
+    """Add system and optional data disks."""
+    hostname = vm.get("logical_name", "UNKNOWN")
+    volumes = payload["host"]["compute_attributes"]["volumes_attributes"]
     disk_specs = (
         (
             "storage1_disk_size_system",
@@ -1890,27 +818,13 @@ def _add_disks(payload, vm):
         ),
     )
 
-    for (
-        size_key,
-        datastore_key,
-        label,
-    ) in disk_specs:
-
-        if not is_valid(
-            vm.get(
-                size_key
-            )
-        ):
+    for size_key, datastore_key, label in disk_specs:
+        if not is_valid(vm.get(size_key)):
             continue
 
-        if not is_valid(
-            vm.get(
-                datastore_key
-            )
-        ):
+        if not is_valid(vm.get(datastore_key)):
             raise ValueError(
-                "VM {}: {} disk size is defined but "
-                "{} is missing".format(
+                "VM {}: {} disk size is defined but {} is missing".format(
                     hostname,
                     label,
                     datastore_key,
@@ -1918,28 +832,7 @@ def _add_disks(payload, vm):
             )
 
         volumes.append({
-            "size_gb": int(
-                float(
-                    vm[
-                        size_key
-                    ]
-                )
-            ),
-
-            "datastore": str(
-                vm[
-                    datastore_key
-                ]
-            ).strip(),
-
-            "thin":
-                provisioning[
-                    "thin"
-                ],
-
-            "eager_zero":
-                provisioning[
-                    "eager_zero"
-                ],
+            "size_gb": int(vm[size_key]),
+            "datastore": vm[datastore_key],
+            "storage_type": vm[vars.VM_DISK_TYPE_COLUMN],
         })
-

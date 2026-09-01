@@ -1,4 +1,4 @@
-# BUILD_MARKER: CENTRAL_PROJECT_CONFIG_V18_VM_CREATE_EXCEL_FIELDS_20260830
+# BUILD_MARKER: CENTRAL_PROJECT_CONFIG_V23_VM_AFFINITY_GROUP_20260901
 
 import os
 
@@ -20,7 +20,7 @@ LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 # ============================================================================
 
 # Workbook and sheet are shared by Foreman provisioning and iLO automation.
-EXCEL_FILENAME = 'Resource List-v7.6.xlsx'
+EXCEL_FILENAME = 'Resource List-v7.7.xlsx'
 RESOURCE_LIST = os.path.join(TEMPLATES_DIR, EXCEL_FILENAME)
 SHEET_NAME = 'General Resource List'
 
@@ -31,7 +31,9 @@ EMPTY_VALUE = 'NODATAFOUND'
 EXCEL_EMPTY_ROW_STOP = 25
 
 # Values treated as empty/invalid throughout inventory and provisioning logic.
-INVALID_VALUES = {'', 'N.A', 'NAN', 'NONE', 'NODATAFOUND'}
+INVALID_VALUES = {
+    '', 'N.A', 'NAN', 'NONE', 'NODATAFOUND', 'SERIAL NUMBER NOT FOUND',
+}
 
 
 # ============================================================================
@@ -60,6 +62,7 @@ SCRIPT_ARTIFACT_PREFIXES = {
     'gen_clusterconfig': 'Cluster_Config',
     'get_mac_RM': 'MAC_RM',
     'get_mac_BL': 'MAC_BL',
+    'set_serial_BL': 'SERIAL_BL',
     'check_vmware_vms': 'VMware_VM_Check',
 }
 
@@ -272,13 +275,34 @@ VM_PROVISION_METHOD = 'image'
 VM_NETWORK_ADAPTER_TYPE = 'VirtualVmxnet3'
 VM_START_ON_CREATE = '1'
 
+# Optional per-VM vSphere DRS VM-group placement.
+#
+# When affinity_group is empty, VM creation is unchanged and Foreman starts
+# the VM normally using VM_START_ON_CREATE.
+#
+# When affinity_group contains a value, process_vm.py creates the VM powered
+# off, vmware_affinity.py attempts to add it to that existing vSphere VM group,
+# and process_vm.py then starts the VM through Foreman regardless of whether
+# the requested group exists. Missing/failed group assignment is reported as
+# a warning and makes the final provisioning status Partial.
+VM_AFFINITY_GROUP_COLUMN = 'affinity_group'
+VM_AFFINITY_VM_WAIT_SECONDS = 300
+VM_AFFINITY_POLL_SECONDS = 5
+VM_AFFINITY_TASK_TIMEOUT_SECONDS = 120
+
+# Foreman power-on verification for VMs whose initial power-on was deferred
+# until after affinity-group processing.
+VM_AFFINITY_POWER_VERIFY_ATTEMPTS = 12
+VM_AFFINITY_POWER_VERIFY_DELAY_SECONDS = 5
+VM_AFFINITY_POWER_STATUS_TIMEOUT_SECONDS = 10
+
 
 # ============================================================================
 # ANSIBLE
 # ============================================================================
 
 ANSIBLE_JOB_NAME = 'Ansible Roles - Ansible Default'
-ANSIBLE_DELAY = 360
+ANSIBLE_DELAY = 650
 ANSIBLE_TARGETING_TYPE = 'static_query'
 ANSIBLE_CONCURRENCY_LEVEL = 1
 
@@ -465,6 +489,90 @@ ILO_BL_POST_ERROR_STRING = 'UnableToModifyDuringSystemPOST'
 ILO_BL_POWER_OFF_POLL_INTERVAL = 5
 ILO_BL_POWER_OFF_TIMEOUT = 90
 ILO_BL_SETTLE_AFTER_POWEROFF = 5
+
+
+# ============================================================================
+# iLO BLADE - SERIAL NUMBER / PRODUCT ID RESTORATION
+# ============================================================================
+
+# Requested BL460c Gen9 product/part number. The BIOS property written by
+# set_serial_BL.py is ProductId.
+BL_Part_Number = '727021-B21'
+
+# set_serial_BL.py scans the complete configured worksheet for the enclosure
+# entered by the operator and processes only blade server rows.
+BL_SERIAL_VALID_EQUIPMENT_TYPES = list(ILO_BL_VALID_EQUIPMENT_TYPES)
+BL_SERIAL_NUMBER_COLUMN = 'serial_no'
+BL_SERIAL_REQUIRED_COLUMNS = [
+    'enclosure_physical_name',
+    'equipment_type',
+    'enclosure_slot',
+    'ilo_ip',
+    BL_SERIAL_NUMBER_COLUMN,
+]
+BL_SERIAL_EXCEL_EMPTY_ROW_STOP = EXCEL_EMPTY_ROW_STOP
+BL_SERIAL_MAX_WORKERS = ILO_BL_REDFISH_CONCURRENT_SESSIONS
+BL_SERIAL_REQUEST_TIMEOUT_SECONDS = ILO_BL_REDFISH_TIMEOUT
+BL_SERIAL_AUTH_RETRIES = ILO_BL_AUTH_RETRIES
+BL_SERIAL_AUTH_RETRY_DELAY_SECONDS = ILO_BL_AUTH_RETRY_DELAY
+BL_SERIAL_WRITE_RETRIES = 3
+BL_SERIAL_WRITE_RETRY_DELAY_SECONDS = 5
+BL_SERIAL_VERIFY_RETRIES = 5
+BL_SERIAL_VERIFY_DELAY_SECONDS = 2
+BL_SERIAL_REPORT_PREFIX = SCRIPT_ARTIFACT_PREFIXES['set_serial_BL']
+
+# iLO 4 firmware before Redfish 1.0 conformance used /rest/v1. Newer iLO 4
+# mirrors the model at /redfish/v1. The script tries each prefix in this order.
+BL_SERIAL_API_PREFIXES = ('/redfish/v1', '/rest/v1')
+
+# Active identity is read from ComputerSystem before BIOS discovery. On iLO 4,
+# SerialNumber is the active serial and SKU represents the active Product ID.
+# ProductId is retained as a fallback for firmware variants that expose it there.
+BL_SERIAL_SYSTEM_PRODUCT_FIELDS = ('SKU', 'ProductId')
+
+# Some Gen9 systems can lose the BIOS provider from the persistent REST model and
+# return ResourceMissingAtURI/HTTP 404 for the BIOS resource. If a real SN/PN
+# change is required, set_serial_BL.py can perform HPE's documented REST API state
+# recovery, reboot the server, rediscover BIOS, and then continue the update.
+# Recovery is NOT performed when active ComputerSystem SN/PN are already correct.
+BL_SERIAL_REST_API_RECOVERY_ON_BIOS_404 = True
+BL_SERIAL_REST_API_RECOVERY_HTTP = True
+BL_SERIAL_REST_API_RECOVERY_SSH_FALLBACK = True
+# Prefer the documented iLO 4 SSH command when available. HTTP remains a
+# fallback and uses the advertised ClearRestApiState action when exposed.
+BL_SERIAL_REST_API_RECOVERY_METHOD_ORDER = ('SSH', 'HTTP')
+BL_SERIAL_REST_API_RECOVERY_SSH_PORT = ILO_BL_SSH_PORT
+BL_SERIAL_REST_API_RECOVERY_SSH_TIMEOUT_SECONDS = ILO_BL_SSH_CONNECT_TIMEOUT
+# ClearRestApiState can take several seconds internally; do not reboot the host
+# immediately after the clear request returns.
+BL_SERIAL_REST_API_CLEAR_SETTLE_SECONDS = 10
+BL_SERIAL_REST_API_RECOVERY_INITIAL_WAIT_SECONDS = 45
+BL_SERIAL_REST_API_RECOVERY_TIMEOUT_SECONDS = 600
+BL_SERIAL_REST_API_RECOVERY_POLL_INTERVAL_SECONDS = 10
+
+# Last-resort recovery for a blade whose writable BIOS Settings provider still
+# does not reappear after ClearRestApiState + a normal server restart. OA
+# RESET SERVER trips the blade E-fuse (virtual remove/reinsert), so it is used
+# only when an actual SN/PN change is required and normal recovery has failed.
+BL_SERIAL_OA_EFUSE_RECOVERY_ON_BIOS_404 = True
+BL_SERIAL_OA_CONNECT_TIMEOUT_SECONDS = ILO_BL_SSH_CONNECT_TIMEOUT
+BL_SERIAL_OA_KEEPALIVE_SECONDS = ILO_BL_SSH_KEEPALIVE_INTERVAL
+BL_SERIAL_OA_COMMAND_TIMEOUT_SECONDS = 120
+BL_SERIAL_OA_EFUSE_INITIAL_WAIT_SECONDS = 45
+BL_SERIAL_OA_EFUSE_TIMEOUT_SECONDS = 600
+BL_SERIAL_OA_EFUSE_POLL_INTERVAL_SECONDS = 10
+
+# Reboot only blades for which SerialNumber and/or ProductId was changed.
+# True is the default so staged BIOS identity values are immediately applied.
+BL_SERIAL_REBOOT_ON_CHANGE = True
+BL_SERIAL_REBOOT_TYPE = 'ForceRestart'
+BL_SERIAL_REBOOT_INITIAL_WAIT_SECONDS = 15
+BL_SERIAL_REBOOT_POLL_INTERVAL_SECONDS = 5
+BL_SERIAL_REBOOT_VERIFY_TIMEOUT_SECONDS = 600
+
+# Gen9/iLO 4 requires X-HPRESTFULAPI-AuthToken on BIOS writes only when a
+# BIOS Administrator password is configured. Leave empty when none is set.
+BL_SERIAL_BIOS_PASSWORD = ''
 
 
 # ============================================================================

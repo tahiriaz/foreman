@@ -1,3 +1,5 @@
+# BUILD_MARKER: REPORTING_AFFINITY_V1_20260901
+
 import csv
 import os
 from datetime import datetime
@@ -63,11 +65,7 @@ def _status_bucket(status):
     ):
         return "Partial"
 
-    if (
-        "fail" in value
-        or "error" in value
-        or "timeout" in value
-    ):
+    if "fail" in value or "error" in value or "timeout" in value:
         return "Failed"
 
     if value in (
@@ -92,10 +90,7 @@ def _summary_sort_key(item):
         return (1, str(row))
 
 
-def print_summary_report(
-    results,
-    title="FINAL SUMMARY REPORT",
-):
+def print_summary_report(results, title="FINAL SUMMARY REPORT"):
     """Print the common console summary used by all main-folder scripts."""
     rows = list(results or [])
     rows.sort(key=_summary_sort_key)
@@ -109,10 +104,7 @@ def print_summary_report(
     }
 
     for item in rows:
-        bucket = _status_bucket(
-            item.get("Status")
-        )
-        counts[bucket] += 1
+        counts[_status_bucket(item.get("Status"))] += 1
 
     width = 170
 
@@ -134,14 +126,16 @@ def print_summary_report(
     print("-" * width)
 
     for item in rows:
-        details = str(
-            item.get("Details", "")
-        ).replace("\r", " ").replace("\n", " | ")
+        details = str(item.get("Details", "")).replace(
+            "\r",
+            " ",
+        ).replace(
+            "\n",
+            " | ",
+        )
 
         try:
-            elapsed = float(
-                item.get("TimeSeconds", 0.0)
-            )
+            elapsed = float(item.get("TimeSeconds", 0.0))
         except Exception:
             elapsed = 0.0
 
@@ -171,15 +165,10 @@ def print_summary_report(
         )
     )
     print("=" * width + "\n")
-
     return counts
 
 
-def write_summary_csv(
-    results,
-    report_prefix,
-    log_dir=None,
-):
+def write_summary_csv(results, report_prefix, log_dir=None):
     """Write the common seven-column summary CSV and return its path."""
     if log_dir is None:
         log_dir = vars.LOG_DIR
@@ -228,18 +217,18 @@ def foreman_summary_rows(results):
 
     for result in results or []:
         component_details = (
-            "Foreman={}; Boot={}; DNS={}; Ansible={}".format(
+            "Foreman={}; Boot={}; Affinity={}; Power={}; "
+            "DNS={}; Ansible={}".format(
                 result.get("Foreman", "N/A"),
                 result.get("Boot", "N/A"),
+                result.get("Affinity", "N/A"),
+                result.get("Power", "N/A"),
                 result.get("DNS", "N/A"),
                 result.get("Ansible", "N/A"),
             )
         )
 
-        details = str(
-            result.get("Details", "")
-        ).strip()
-
+        details = str(result.get("Details", "")).strip()
         if details:
             component_details += "; " + details
 
