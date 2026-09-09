@@ -1,0 +1,76 @@
+1. Break the physical IRF connection
+
+On both switches:
+
+Switch 1
+system-view
+
+interface Ten-GigabitEthernet1/0/17
+shutdown
+quit
+Switch 2
+system-view
+
+interface Ten-GigabitEthernet2/0/17
+shutdown
+quit
+
+At this point the switches are no longer communicating through the IRF link.
+
+2. Remove the IRF port configuration
+Switch 1
+system-view
+
+irf-port 1/1
+undo port group interface Ten-GigabitEthernet1/0/17
+quit
+
+save force
+Switch 2
+system-view
+
+irf-port 2/2
+undo port group interface Ten-GigabitEthernet2/0/17
+quit
+
+save force
+
+You can verify with:
+
+display irf
+
+and:
+
+display irf configuration
+3. Renumber Switch 2 back to member 1
+
+Your second switch was originally changed with:
+
+irf member 1 renumber 2
+
+So its current member ID is 2.
+
+If you want both switches to become normal standalone switches with member ID 1, on the second switch:
+
+system-view
+
+irf member 2 renumber 1
+quit
+
+You will normally be told that the change takes effect after reboot.
+
+Then:
+
+save force
+reboot
+
+Confirm the reboot when prompted.
+
+4. What about Switch 1?
+
+Switch 1 already has member ID 1, so you don't need to renumber it.
+
+After removing its IRF-port configuration:
+
+save force
+reboot

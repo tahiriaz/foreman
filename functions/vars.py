@@ -42,8 +42,8 @@ INVALID_VALUES = {
 
 # Inclusive Excel row range shared by all scripts that process the resource list:
 # Foreman provisioning, rack-mount iLO, blade iLO, RAID, and future automation.
-START_ROW = 928
-END_ROW = 951
+START_ROW = 11
+END_ROW = 26
 
 # Overall Foreman/DNS orchestration worker pool.
 MAX_WORKERS = 8
@@ -437,7 +437,7 @@ ILO_RM_REPORT_PREFIX = "ILO_RM_Report"
 # iLO RACK-MOUNT - REDFISH / RESET / DEBUG
 # ============================================================================
 
-ILO_RM_DEBUG_MODE = False
+ILO_RM_DEBUG_MODE = True
 ILO_RM_REQUEST_TIMEOUT = 30
 
 ILO_RM_RESET_INITIAL_WAIT_SECONDS = 20

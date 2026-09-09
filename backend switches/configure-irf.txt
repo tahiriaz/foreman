@@ -1,0 +1,55 @@
+======================= switch 1
+system-view
+
+irf member 1 priority 4
+
+interface Ten-GigabitEthernet1/0/17
+shutdown
+quit
+
+irf-port 1/1
+port group interface Ten-GigabitEthernet1/0/17
+quit
+
+save force
+
+irf-port-configuration active
+======================= switch 2
+system-view
+irf member 1 renumber 2
+quit
+reboot
+
+irf member 2 priority 3
+
+
+interface Ten-GigabitEthernet2/0/17
+shutdown
+quit
+
+irf-port 2/2
+port group interface Ten-GigabitEthernet2/0/17
+quit
+
+save force
+
+irf-port-configuration active
+
+======================= after reboots if required, on switch 2
+interface Ten-GigabitEthernet2/0/17
+undo shutdown
+quit
+save force
+====================== switch 2
+interface Ten-GigabitEthernet2/0/17
+shutdown
+quit
+====================== switch 1
+interface Ten-GigabitEthernet1/0/17
+undo shutdown
+quit
+
+save force
+======================= switch 2
+interface Ten-GigabitEthernet2/0/17
+undo shutdown

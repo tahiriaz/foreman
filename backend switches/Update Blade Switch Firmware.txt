@@ -1,0 +1,28 @@
+#### Create a VLAN Interface
+
+interface vlan-interface 118
+ip address 10.101.18.11 255.255.254.0
+save force
+quit
+quit
+quit
+
+#### We configure an FTP server on on laptop and connect to the FTP server and download the Balde Switch ISO and install
+
+ftp 10.103.61.27
+ftp
+
+binary
+get 6125-CMW520-R2112P08.bin
+bye
+
+bootrom update file flash:/6125-cmw520-r2112p08.bin slot 2
+Y
+
+boot-loader file 6125-cmw520-r2112p08.bin slot all main
+Y
+
+save force
+
+reboot
+Y

@@ -1,0 +1,13 @@
+system-view
+
+interface range GigabitEthernet 1/0/1 to GigabitEthernet 1/0/16
+ default
+quit
+
+interface range GigabitEthernet 2/0/1 to GigabitEthernet 2/0/16
+ default
+quit
+
+interface range Bridge-Aggregation 11 to Bridge-Aggregation 26
+ default
+quit

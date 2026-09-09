@@ -72,7 +72,6 @@ interface Bridge-Aggregation1
  description To_core
  port link-type trunk
  port trunk permit vlan 126 128 144 461
- port trunk pvid vlan 461
  link-aggregation mode dynamic
  link-aggregation load-sharing mode destination-ip source-ip
 #
