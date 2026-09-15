@@ -1,0 +1,56 @@
+######################################
+pcs constraint colocation remove clnvrm012-vip clnvrm011-vip
+
+pcs constraint colocation remove clnvrm013-vip clnvrm011-vip
+pcs constraint colocation remove clnvrm013-vip clnvrm012-vip
+
+pcs constraint colocation remove clnvrm014-vip clnvrm011-vip
+pcs constraint colocation remove clnvrm014-vip clnvrm012-vip
+pcs constraint colocation remove clnvrm014-vip clnvrm013-vip
+
+pcs constraint colocation remove clnvrm015-vip clnvrm011-vip
+pcs constraint colocation remove clnvrm015-vip clnvrm012-vip
+pcs constraint colocation remove clnvrm015-vip clnvrm013-vip
+pcs constraint colocation remove clnvrm015-vip clnvrm014-vip
+
+pcs constraint colocation remove clnvrm016-vip clnvrm011-vip
+pcs constraint colocation remove clnvrm016-vip clnvrm012-vip
+pcs constraint colocation remove clnvrm016-vip clnvrm013-vip
+pcs constraint colocation remove clnvrm016-vip clnvrm014-vip
+pcs constraint colocation remove clnvrm016-vip clnvrm015-vip
+
+pcs constraint colocation remove clnvrm017-vip clnvrm011-vip
+pcs constraint colocation remove clnvrm017-vip clnvrm012-vip
+pcs constraint colocation remove clnvrm017-vip clnvrm013-vip
+pcs constraint colocation remove clnvrm017-vip clnvrm014-vip
+pcs constraint colocation remove clnvrm017-vip clnvrm015-vip
+pcs constraint colocation remove clnvrm017-vip clnvrm016-vip
+######################################
+
+
+pcs constraint colocation add clnvrm012-vip with clnvrm011-vip score=-INFINITY
+
+pcs constraint colocation add clnvrm013-vip with clnvrm011-vip score=-INFINITY
+pcs constraint colocation add clnvrm013-vip with clnvrm012-vip score=-INFINITY
+
+pcs constraint colocation add clnvrm014-vip with clnvrm011-vip score=-INFINITY
+pcs constraint colocation add clnvrm014-vip with clnvrm012-vip score=-INFINITY
+pcs constraint colocation add clnvrm014-vip with clnvrm013-vip score=-INFINITY
+
+pcs constraint colocation add clnvrm015-vip with clnvrm011-vip score=-INFINITY
+pcs constraint colocation add clnvrm015-vip with clnvrm012-vip score=-INFINITY
+pcs constraint colocation add clnvrm015-vip with clnvrm013-vip score=-INFINITY
+pcs constraint colocation add clnvrm015-vip with clnvrm014-vip score=-INFINITY
+
+pcs constraint colocation add clnvrm016-vip with clnvrm011-vip score=-INFINITY
+pcs constraint colocation add clnvrm016-vip with clnvrm012-vip score=-INFINITY
+pcs constraint colocation add clnvrm016-vip with clnvrm013-vip score=-INFINITY
+pcs constraint colocation add clnvrm016-vip with clnvrm014-vip score=-INFINITY
+pcs constraint colocation add clnvrm016-vip with clnvrm015-vip score=-INFINITY
+
+pcs constraint colocation add clnvrm017-vip with clnvrm011-vip score=-INFINITY
+pcs constraint colocation add clnvrm017-vip with clnvrm012-vip score=-INFINITY
+pcs constraint colocation add clnvrm017-vip with clnvrm013-vip score=-INFINITY
+pcs constraint colocation add clnvrm017-vip with clnvrm014-vip score=-INFINITY
+pcs constraint colocation add clnvrm017-vip with clnvrm015-vip score=-INFINITY
+pcs constraint colocation add clnvrm017-vip with clnvrm016-vip score=-INFINITY

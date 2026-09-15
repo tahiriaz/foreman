@@ -1,0 +1,13 @@
+pcs stonith create fence_tvsnvrapp017mp fence_ilo4 ip=10.101.18.37 username=hpilofence password="Th@les01" privlvl=user pcmk_host_list=tvsnvrapp017mp op monitor interval=600s
+
+pcs stonith create fence_tvsnvrapp018mp fence_ilo4 ip=10.101.18.38 username=hpilofence password="Th@les01" privlvl=user pcmk_host_list=tvsnvrapp018mp op monitor interval=600s
+
+pcs stonith create fence_tvsnvrapp019mp fence_ilo4 ip=10.101.18.39 username=hpilofence password="Th@les01" privlvl=user pcmk_host_list=tvsnvrapp019mp op monitor interval=600s
+
+pcs stonith create fence_tvsnvrapp020mp fence_ilo4 ip=10.101.18.40 username=hpilofence password="Th@les01" privlvl=user pcmk_host_list=tvsnvrapp020mp op monitor interval=600s
+
+pcs stonith create fence_tvsnvrapp021mp fence_ilo4 ip=10.101.18.41 username=hpilofence password="Th@les01" privlvl=user pcmk_host_list=tvsnvrapp021mp op monitor interval=600s
+
+pcs stonith create fence_tvsnvrapp022mp fence_ilo4 ip=10.101.18.42 username=hpilofence password="Th@les01" privlvl=user pcmk_host_list=tvsnvrapp022mp op monitor interval=600s
+
+pcs stonith create fence_tvsnvrapp023mp fence_ilo4 ip=10.101.18.43 username=hpilofence password="Th@les01" privlvl=user pcmk_host_list=tvsnvrapp023mp op monitor interval=600s

@@ -1,0 +1,76 @@
+WARNING:  UN-AUTHORIZED ACCESS IS PROHIBITED
+
+============================================
+      THALES    IT Infrastructure
+============================================
+  System Name:   [ tvsnvrapp001mp ]
+============================================
+  Site Name:     [ SHAMIYAH ]
+============================================
+  Bldg Location: [ MTR-RTR ]
+============================================
+  Region Name:   [ JEDDAH ]
+============================================
+
+ _________  ____  ____       _       _____     ________   ______
+|  _   _  ||_   ||   _|     / \     |_   _|   |_   __  |.' ____ \
+|_/ | | \_|  | |__| |      / _ \      | |       | |_ \_|| (___ \_|
+    | |      |  __  |     / ___ \     | |   _   |  _| _  _.____`.
+   _| |_    _| |  | |_  _/ /   \ \_  _| |__/ | _| |__/ || \____) |
+  |_____|  |____||____||____| |____||________||________| \______.'
+###################################################################
+#           Thales Security Solutions & Services Co.              #
+#                      www.thalesgroup.com                        #
+###################################################################
+WARNING
+   YOU MUST HAVE PRIOR AUTHORIZATION TO ACCESS THIS SYSTEM. ALL CONNECTIONS
+   ARE LOGGED AND MONITORED. BY CONNECTING TO THIS SYSTEM YOU FULLY CONSENT
+   TO ALL MONITORING. UN-AUTHORIZED ACCESS OR USE WILL BE PROSECUTED TO THE
+   FULL EXTENT OF LAW. YOU HAVE BEEN WARNED
+Register this system with Red Hat Insights: insights-client --register
+Create an account or view all your systems at https://red.ht/insights-dashboard
+Last login: Sun Sep 13 11:55:13 2026 from 10.210.73.222
+[root@tvsnvrapp001mp ~]# systemctl enable pcsd.service --now
+Created symlink /etc/systemd/system/multi-user.target.wants/pcsd.service → /usr/lib/systemd/system/pcsd.service.
+[root@tvsnvrapp001mp ~]#
+[root@tvsnvrapp001mp ~]# pcs host auth tvsnvrapp001mp.mak.iss tvsnvrapp002mp.mak.iss tvsnvrapp003mp.mak.iss tvsnvrapp004mp.mak.iss tvsnvrapp005mp.mak.iss tvsnvrapp006mp.mak.iss tvsnvrapp007mp.mak.iss tvsnvrapp008mp.mak.iss -u hacluster -p "Th@les01"
+Error: Unable to communicate with tvsnvrapp003mp.mak.iss
+Error: Unable to communicate with tvsnvrapp002mp.mak.iss
+Error: Unable to communicate with tvsnvrapp004mp.mak.iss
+Error: Unable to communicate with tvsnvrapp005mp.mak.iss
+Error: Unable to communicate with tvsnvrapp008mp.mak.iss
+Error: Unable to communicate with tvsnvrapp006mp.mak.iss
+tvsnvrapp001mp.mak.iss: Authorized
+Error: Unable to communicate with tvsnvrapp007mp.mak.iss
+[root@tvsnvrapp001mp ~]# pcs cluster setup CLNVRM000 --start \
+tvsnvrapp004mp addr=10.101.44.14 addr=10.101.28.14 \
+tvsnvrapp005mp addr=10.101.44.15 addr=10.101.28.15 \
+tvsnvrapp006mp addr=10.101.44.16 addr=10.101.28.16 \
+tvsnvrapp007mp addr=10.101.44.17 addr=10.101.28.17 \
+tvsnvrapp008mp addr=10.101.44.18 addr=10.101.28.18 \
+transport knet \
+link linknumber=0 link_priority=1 link linknumber=1 link_priority=0 \
+totem token=10000
+
+> tvsnvrapp001mp addr=10.101.44.11 addr=10.101.28.11 \
+> tvsnvrapp002mp addr=10.101.44.12 addr=10.101.28.12 \
+> tvsnvrapp003mp addr=10.101.44.13 addr=10.101.28.13 \
+> tvsnvrapp004mp addr=10.101.44.14 addr=10.101.28.14 \
+> tvsnvrapp005mp addr=10.101.44.15 addr=10.101.28.15 \
+> tvsnvrapp006mp addr=10.101.44.16 addr=10.101.28.16 \
+> tvsnvrapp007mp addr=10.101.44.17 addr=10.101.28.17 \
+> tvsnvrapp008mp addr=10.101.44.18 addr=10.101.28.18 \
+> transport knet \
+> link linknumber=0 link_priority=1 link linknumber=1 link_priority=0 \
+> totem token=10000
+pcs cluster start --all
+pcs cluster enable --all
+Error: Hosts 'tvsnvrapp001mp', 'tvsnvrapp002mp', 'tvsnvrapp003mp', 'tvsnvrapp004mp', 'tvsnvrapp005mp', 'tvsnvrapp006mp', 'tvsnvrapp007mp', 'tvsnvrapp008mp' are not known to pcs, try to authenticate the hosts using 'pcs host auth tvsnvrapp001mp tvsnvrapp002mp tvsnvrapp003mp tvsnvrapp004mp tvsnvrapp005mp tvsnvrapp006mp tvsnvrapp007mp tvsnvrapp008mp' command
+Error: None of hosts is known to pcs.
+Error: Errors have occurred, therefore pcs is unable to continue
+[root@tvsnvrapp001mp ~]#
+[root@tvsnvrapp001mp ~]# pcs cluster start --all
+Error: Unable to read /etc/corosync/corosync.conf: No such file or directory
+[root@tvsnvrapp001mp ~]# pcs cluster enable --all
+Error: Unable to read /etc/corosync/corosync.conf: No such file or directory
+[root@tvsnvrapp001mp ~]#

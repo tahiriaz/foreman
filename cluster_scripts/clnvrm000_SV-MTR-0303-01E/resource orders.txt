@@ -1,0 +1,4 @@
+pcs constraint order start rg-clnvrm010-core then clnvrm011-nfsrec01
+pcs constraint order start rg-clnvrm010-core then clnvrm011-nfsrec02
+pcs constraint order start rg-clnvrm010-core then clnvrm011-nfsrec03
+pcs constraint order start rg-clnvrm010-core then clnvrm011-nfsrec04
