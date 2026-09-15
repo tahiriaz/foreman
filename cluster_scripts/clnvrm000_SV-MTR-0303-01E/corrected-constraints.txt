@@ -1,0 +1,7 @@
+pcs constraint colocation add clnvrm021-vip with rg-clnvrm021-core INFINITY
+pcs constraint colocation add clnvrm022-vip with rg-clnvrm022-core INFINITY
+pcs constraint colocation add clnvrm023-vip with rg-clnvrm023-core INFINITY
+pcs constraint colocation add clnvrm024-vip with rg-clnvrm024-core INFINITY
+pcs constraint colocation add clnvrm025-vip with rg-clnvrm025-core INFINITY
+pcs constraint colocation add clnvrm026-vip with rg-clnvrm026-core INFINITY
+pcs constraint colocation add clnvrm027-vip with rg-clnvrm027-core INFINITY
