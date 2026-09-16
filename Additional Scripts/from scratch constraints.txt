@@ -1,0 +1,55 @@
+1. First: VIP anti-colocation constraints
+
+We have 7 VIPs and want no two VIPs on the same node.
+
+Run this exact loop:
+
+for a in 021 022 023 024 025 026; do
+    for b in $(seq $((10#$a + 1)) 027); do
+        printf -v b '%03d' "$b"
+        pcs constraint colocation add clnvrm${a}-vip with clnvrm${b}-vip -INFINITY
+    done
+done
+
+This creates the 21 pairwise anti-colocation constraints.
+
+Then check:
+
+pcs constraint config --full | grep 'vip with'
+
+You should have 21 lines.
+
+Now check the critical VIP:
+
+crm_simulate -Ls | grep -A10 -B5 'clnvrm024-vip allocation score'
+
+
+=================
+
+for n in 021 022 023 024 025 026 027; do
+    for r in 01 02 03 04; do
+        pcs constraint colocation add clnvrm${n}-nfsrec${r} with rg-clnvrm${n}-core INFINITY
+    done
+done
+
+===================
+Step 3 — Add the 28 ordering constraints
+
+Once the NFSREC resources have followed their respective cores, add:
+
+for n in 021 022 023 024 025 026 027; do
+    for r in 01 02 03 04; do
+        pcs constraint order start rg-clnvrm${n}-core then clnvrm${n}-nfsrec${r}
+    done
+done
+
+=============
+We need the 28 order constraints so that each core group starts before its four NFSREC resources.
+
+Run:
+
+for n in 021 022 023 024 025 026 027; do
+    for r in 01 02 03 04; do
+        pcs constraint order start rg-clnvrm${n}-core then clnvrm${n}-nfsrec${r}
+    done
+done

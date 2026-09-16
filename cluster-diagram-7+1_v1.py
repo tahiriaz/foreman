@@ -5,6 +5,7 @@ import sys
 import subprocess
 import tempfile
 import shutil
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
@@ -24,25 +25,15 @@ except ImportError:
 # CONFIGURATION
 # ============================================================
 
-# ------------------------------------------------------------
-# Cluster node IP, hostname or VIP
-# ------------------------------------------------------------
-
 CLUSTER_IP = "10.101.28.27"
-
-# ------------------------------------------------------------
-# SSH credentials
-# ------------------------------------------------------------
 
 ssh_user = "root"
 
+# Put your SSH password here.
+# This is intentionally not copied from the previous script.
 ssh_password = "Th@les01"
 
 ssh_port = 22
-
-# ------------------------------------------------------------
-# Output directory
-# ------------------------------------------------------------
 
 OUTPUT_DIR = Path.cwd() / "cluster-diagrams"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,49 +44,28 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # ============================================================
 
 SIDE_MARGIN = 35
-
 TOP_MARGIN = 130
-
 BOTTOM_MARGIN = 65
 
 NODE_WIDTH = 300
-
 NODE_GAP = 18
-
 NODE_HEADER_HEIGHT = 105
-
 NODE_RESOURCE_HEIGHT = 34
-
 NODE_RESOURCE_GAP = 5
 
-SERVICE_HEADER_HEIGHT = 34
-
-SERVICE_RESOURCE_HEIGHT = 28
-
-SERVICE_GAP = 5
-
 PANEL_GAP = 12
-
 PANEL_HEADER_HEIGHT = 38
-
 PANEL_PADDING = 12
 
 FONT_TITLE = 30
 FONT_SUBTITLE = 15
-
 FONT_NODE = 17
 FONT_NODE_STATUS = 15
-
 FONT_COUNT = 13
-
-FONT_SERVICE = 15
 FONT_RESOURCE = 12
-
 FONT_PANEL = 15
 FONT_PANEL_TEXT = 12
-
 FONT_SMALL = 11
-
 FONT_LEGEND = 11
 
 
@@ -104,17 +74,13 @@ FONT_LEGEND = 11
 # ============================================================
 
 WHITE = "#FFFFFF"
-
 BLACK = "#111111"
 
 DARK_BLUE = "#173A75"
-
 BLUE = "#1565C0"
-LIGHT_BLUE = "#EAF3FF"
 
 GREEN = "#1B8E3E"
 LIGHT_GREEN = "#E7F5E9"
-
 DARK_GREEN = "#0B6B2D"
 
 ORANGE = "#E68A00"
@@ -124,16 +90,12 @@ RED = "#C40000"
 LIGHT_RED = "#FCE7E7"
 
 PURPLE = "#7026A0"
-LIGHT_PURPLE = "#F0E7F7"
 
 GRAY = "#777777"
 DARK_GRAY = "#444444"
 LIGHT_GRAY = "#F2F3F5"
 
 BORDER = "#AAB2BD"
-
-CYAN = "#087E8B"
-LIGHT_CYAN = "#E4F6F8"
 
 
 # ============================================================
@@ -143,15 +105,12 @@ LIGHT_CYAN = "#E4F6F8"
 def get_font(size, bold=False):
 
     if bold:
-
         candidates = [
             "C:/Windows/Fonts/arialbd.ttf",
             "C:/Windows/Fonts/segoeuib.ttf",
             "C:/Windows/Fonts/calibrib.ttf"
         ]
-
     else:
-
         candidates = [
             "C:/Windows/Fonts/arial.ttf",
             "C:/Windows/Fonts/segoeui.ttf",
@@ -159,73 +118,24 @@ def get_font(size, bold=False):
         ]
 
     for path in candidates:
-
         if Path(path).exists():
-
-            return ImageFont.truetype(
-                path,
-                size
-            )
+            return ImageFont.truetype(path, size)
 
     return ImageFont.load_default()
 
 
 TITLE_FONT = get_font(FONT_TITLE, True)
-
-SUBTITLE_FONT = get_font(
-    FONT_SUBTITLE,
-    False
-)
-
-NODE_FONT = get_font(
-    FONT_NODE,
-    True
-)
-
-NODE_STATUS_FONT = get_font(
-    FONT_NODE_STATUS,
-    True
-)
-
-COUNT_FONT = get_font(
-    FONT_COUNT,
-    False
-)
-
-SERVICE_FONT = get_font(
-    FONT_SERVICE,
-    True
-)
-
-RESOURCE_FONT = get_font(
-    FONT_RESOURCE,
-    False
-)
-
-PANEL_FONT = get_font(
-    FONT_PANEL,
-    True
-)
-
-PANEL_TEXT_FONT = get_font(
-    FONT_PANEL_TEXT,
-    False
-)
-
-PANEL_TEXT_BOLD = get_font(
-    FONT_PANEL_TEXT,
-    True
-)
-
-SMALL_FONT = get_font(
-    FONT_SMALL,
-    False
-)
-
-LEGEND_FONT = get_font(
-    FONT_LEGEND,
-    False
-)
+SUBTITLE_FONT = get_font(FONT_SUBTITLE, False)
+NODE_FONT = get_font(FONT_NODE, True)
+NODE_STATUS_FONT = get_font(FONT_NODE_STATUS, True)
+COUNT_FONT = get_font(FONT_COUNT, False)
+RESOURCE_FONT = get_font(FONT_RESOURCE, False)
+PANEL_FONT = get_font(FONT_PANEL, True)
+PANEL_TEXT_FONT = get_font(FONT_PANEL_TEXT, False)
+PANEL_TEXT_BOLD = get_font(FONT_PANEL_TEXT, True)
+SMALL_FONT = get_font(FONT_SMALL, False)
+SMALL_BOLD = get_font(FONT_SMALL, True)
+LEGEND_FONT = get_font(FONT_LEGEND, False)
 
 
 # ============================================================
@@ -233,7 +143,6 @@ LEGEND_FONT = get_font(
 # ============================================================
 
 def shorten(text, length):
-
     if text is None:
         return ""
 
@@ -244,12 +153,7 @@ def shorten(text, length):
 
 
 def text_size(draw, text, font):
-
-    bbox = draw.textbbox(
-        (0, 0),
-        text,
-        font=font
-    )
+    bbox = draw.textbbox((0, 0), text, font=font)
 
     return (
         bbox[2] - bbox[0],
@@ -257,20 +161,8 @@ def text_size(draw, text, font):
     )
 
 
-def centered_text(
-    draw,
-    x,
-    y,
-    text,
-    font,
-    fill
-):
-
-    width, height = text_size(
-        draw,
-        text,
-        font
-    )
+def centered_text(draw, x, y, text, font, fill):
+    width, height = text_size(draw, text, font)
 
     draw.text(
         (
@@ -284,7 +176,6 @@ def centered_text(
 
 
 def safe_name(text):
-
     return (
         text
         .replace("/", "_")
@@ -292,6 +183,22 @@ def safe_name(text):
         .replace(" ", "_")
         .replace(":", "_")
     )
+
+
+def bool_from_string(value):
+    return str(value).lower() in (
+        "true",
+        "yes",
+        "on",
+        "1"
+    )
+
+
+def int_or_none(value):
+    try:
+        return int(str(value))
+    except Exception:
+        return None
 
 
 # ============================================================
@@ -309,24 +216,13 @@ def create_askpass_script(password):
         "askpass.cmd"
     )
 
-    # The password is returned to OpenSSH when it invokes
-    # SSH_ASKPASS.
-    #
-    # NOTE:
-    # Avoid CMD-special characters such as &, |, <, >,
-    # ^, %, ! in the password if possible.
-
     with open(
         askpass_file,
         "w"
     ) as f:
 
         f.write("@echo off\n")
-        f.write(
-            "echo "
-            + password
-            + "\n"
-        )
+        f.write("echo " + password + "\n")
 
     return temp_dir, askpass_file
 
@@ -349,17 +245,9 @@ def ssh_command(command):
 
         environment = os.environ.copy()
 
-        environment[
-            "SSH_ASKPASS"
-        ] = askpass_file
-
-        environment[
-            "SSH_ASKPASS_REQUIRE"
-        ] = "force"
-
-        environment[
-            "DISPLAY"
-        ] = "none:0"
+        environment["SSH_ASKPASS"] = askpass_file
+        environment["SSH_ASKPASS_REQUIRE"] = "force"
+        environment["DISPLAY"] = "none:0"
 
         command_line = [
 
@@ -388,9 +276,7 @@ def ssh_command(command):
             "-o",
             "PubkeyAuthentication=no",
 
-            ssh_user
-            + "@"
-            + CLUSTER_IP,
+            ssh_user + "@" + CLUSTER_IP,
 
             command
         ]
@@ -422,14 +308,10 @@ def ssh_command(command):
                 + CLUSTER_IP
             )
             print()
-            print(
-                "Command:"
-            )
+            print("Command:")
             print(command)
             print()
-            print(
-                "SSH error:"
-            )
+            print("SSH error:")
             print(result.stderr)
 
             sys.exit(1)
@@ -447,7 +329,7 @@ def ssh_command(command):
 
 
 # ============================================================
-# CONNECTIVITY TEST
+# CONNECTIVITY
 # ============================================================
 
 print()
@@ -464,7 +346,6 @@ print(
 )
 
 print()
-
 print("Testing SSH connection...")
 
 ssh_result = ssh_command(
@@ -473,33 +354,29 @@ ssh_result = ssh_command(
 
 if "SSH_CONNECTION_OK" not in ssh_result:
 
-    print(
-        "ERROR: SSH connection test failed."
-    )
-
+    print("ERROR: SSH connection test failed.")
     sys.exit(1)
 
 print("SSH connection successful.")
 
 
 # ============================================================
-# GET PACEMAKER XML
+# GET PACEMAKER DATA
 # ============================================================
 
-print(
-    "Getting Pacemaker status..."
-)
-
+print("Getting Pacemaker XML...")
 crm_xml = ssh_command(
     "crm_mon -1 -X"
 )
 
-print(
-    "Getting Pacemaker CIB..."
-)
-
+print("Getting Pacemaker CIB...")
 cib_xml = ssh_command(
     "cibadmin -Q"
+)
+
+print("Getting pcs status...")
+pcs_status = ssh_command(
+    "pcs status --full"
 )
 
 
@@ -508,33 +385,18 @@ cib_xml = ssh_command(
 # ============================================================
 
 try:
-
-    crm_root = ET.fromstring(
-        crm_xml
-    )
-
+    crm_root = ET.fromstring(crm_xml)
 except Exception as e:
-
     print()
-    print(
-        "ERROR parsing crm_mon XML:"
-    )
+    print("ERROR parsing crm_mon XML:")
     print(str(e))
     sys.exit(1)
 
-
 try:
-
-    cib_root = ET.fromstring(
-        cib_xml
-    )
-
+    cib_root = ET.fromstring(cib_xml)
 except Exception as e:
-
     print()
-    print(
-        "ERROR parsing CIB XML:"
-    )
+    print("ERROR parsing CIB XML:")
     print(str(e))
     sys.exit(1)
 
@@ -565,13 +427,9 @@ for elem in cib_root.iter():
 
 nodes = {}
 
-
-for node in crm_root.findall(
-    ".//nodes/node"
-):
+for node in crm_root.findall(".//nodes/node"):
 
     node_name = (
-
         node.get("uname")
         or node.get("name")
         or node.get("id")
@@ -580,31 +438,18 @@ for node in crm_root.findall(
     if not node_name:
         continue
 
-    online = (
-        node.get(
-            "online",
-            "false"
-        ).lower()
-        == "true"
+    online = bool_from_string(
+        node.get("online", "false")
     )
 
-    standby = (
-        node.get(
-            "standby",
-            "false"
-        ).lower()
-        == "true"
+    standby = bool_from_string(
+        node.get("standby", "false")
     )
 
-    maintenance = (
-        node.get(
-            "maintenance",
-            "false"
-        ).lower()
-        == "true"
+    maintenance = bool_from_string(
+        node.get("maintenance", "false")
     )
 
-    # Pacemaker can report standby in different forms.
     if node.get("standby") == "on":
         standby = True
 
@@ -635,8 +480,7 @@ def add_resource(
     failed=False,
     managed=True,
     node=None,
-    role="Stopped",
-    resource_type="primitive"
+    role="Stopped"
 ):
 
     if not resource_id:
@@ -658,14 +502,12 @@ def add_resource(
 
             "role": role,
 
-            "type": resource_type
+            "admin_disabled": False
         }
 
     else:
 
-        resource = resources[
-            resource_id
-        ]
+        resource = resources[resource_id]
 
         if active:
             resource["active"] = True
@@ -700,28 +542,17 @@ for elem in crm_root.iter():
     if not resource_id:
         continue
 
-    active = (
-        elem.get(
-            "active",
-            "false"
-        ).lower()
-        == "true"
+    active = bool_from_string(
+        elem.get("active", "false")
     )
 
-    failed = (
-        elem.get(
-            "failed",
-            "false"
-        ).lower()
-        == "true"
+    failed = bool_from_string(
+        elem.get("failed", "false")
     )
 
-    managed = (
-        elem.get(
-            "managed",
-            "true"
-        ).lower()
-        != "false"
+    managed = not (
+        elem.get("managed", "true").lower()
+        == "false"
     )
 
     role = elem.get(
@@ -736,7 +567,6 @@ for elem in crm_root.iter():
         if child.tag == "node":
 
             running_node = (
-
                 child.get("uname")
                 or child.get("name")
             )
@@ -745,57 +575,13 @@ for elem in crm_root.iter():
                 break
 
     add_resource(
-
         resource_id,
-
         active,
-
         failed,
-
         managed,
-
         running_node,
-
         role
     )
-
-
-# ============================================================
-# FAILED RESOURCE DETECTION
-# ============================================================
-
-failed_resources = set()
-
-
-for elem in crm_root.iter():
-
-    resource_id = elem.get(
-        "resource"
-    )
-
-    if not resource_id:
-        continue
-
-    if (
-        elem.get(
-            "failed",
-            ""
-        ).lower()
-        == "true"
-    ):
-
-        failed_resources.add(
-            resource_id
-        )
-
-
-for resource_id, resource in resources.items():
-
-    if resource["failed"]:
-
-        failed_resources.add(
-            resource_id
-        )
 
 
 # ============================================================
@@ -804,9 +590,7 @@ for resource_id, resource in resources.items():
 
 groups = {}
 
-
 resources_section = None
-
 
 for elem in cib_root.iter():
 
@@ -819,39 +603,120 @@ for elem in cib_root.iter():
 
 if resources_section is not None:
 
-    for group in resources_section.findall(
-        "group"
-    ):
+    for group in resources_section.findall("group"):
 
-        group_id = group.get(
-            "id"
-        )
+        group_id = group.get("id")
 
         if not group_id:
             continue
 
         members = []
 
-        for primitive in group.findall(
-            "primitive"
-        ):
+        for primitive in group.findall("primitive"):
 
-            resource_id = primitive.get(
-                "id"
-            )
+            resource_id = primitive.get("id")
 
             if resource_id:
-
-                members.append(
-                    resource_id
-                )
+                members.append(resource_id)
 
         groups[group_id] = {
 
             "id": group_id,
 
-            "members": members
+            "members": members,
+
+            "admin_disabled": False
         }
+
+
+# ============================================================
+# RESOURCE / GROUP META OPTIONS
+# ============================================================
+
+# This reads target-role=Stopped from the CIB.
+#
+# A disabled group is treated as an administrative state.
+# Its member resources are therefore also considered
+# administratively stopped for health purposes.
+
+admin_disabled_resources = set()
+admin_disabled_groups = set()
+
+
+def element_has_target_role_stopped(element):
+
+    for child in element.iter():
+
+        if child.tag != "nvpair":
+            continue
+
+        if child.get("name") != "target-role":
+            continue
+
+        if str(
+            child.get("value", "")
+        ).lower() == "stopped":
+
+            return True
+
+    return False
+
+
+# Check groups.
+
+if resources_section is not None:
+
+    for group in resources_section.findall("group"):
+
+        group_id = group.get("id")
+
+        if not group_id:
+            continue
+
+        if element_has_target_role_stopped(group):
+
+            admin_disabled_groups.add(group_id)
+
+            if group_id in groups:
+                groups[group_id]["admin_disabled"] = True
+
+            for primitive in group.findall("primitive"):
+
+                resource_id = primitive.get("id")
+
+                if resource_id:
+                    admin_disabled_resources.add(
+                        resource_id
+                    )
+
+
+# Check individual primitives.
+
+if resources_section is not None:
+
+    for primitive in resources_section.iter("primitive"):
+
+        resource_id = primitive.get("id")
+
+        if not resource_id:
+            continue
+
+        if element_has_target_role_stopped(
+            primitive
+        ):
+
+            admin_disabled_resources.add(
+                resource_id
+            )
+
+
+for resource_id in admin_disabled_resources:
+
+    if resource_id in resources:
+
+        resources[resource_id][
+            "admin_disabled"
+        ] = True
 
 
 # ============================================================
@@ -860,14 +725,156 @@ if resources_section is not None:
 
 resource_to_group = {}
 
-
 for group_id, group in groups.items():
 
     for resource_id in group["members"]:
 
-        resource_to_group[
+        resource_to_group[resource_id] = group_id
+
+
+# ============================================================
+# FAILED RESOURCE ACTIONS
+# ============================================================
+
+# crm_mon XML is useful for current resource state, but
+# failed actions shown by "pcs status" are not reliably exposed
+# as current resource failed=true attributes.
+#
+# Therefore the script explicitly reads "pcs status --full"
+# and parses its "Failed Resource Actions" section.
+
+failed_actions = []
+
+in_failed_section = False
+
+resource_ids_sorted = sorted(
+    resources.keys(),
+    key=len,
+    reverse=True
+)
+
+for raw_line in pcs_status.splitlines():
+
+    line = raw_line.strip()
+
+    if line.lower() == "failed resource actions:":
+
+        in_failed_section = True
+
+        continue
+
+    if not in_failed_section:
+        continue
+
+    if line.startswith("Daemon Status:"):
+
+        break
+
+    if not line:
+        continue
+
+    if not line.startswith("*"):
+
+        continue
+
+    # Example:
+    #
+    # * clnvrm024-nfsdat01_monitor_60000 on
+    #   tvsnvrapp017mp.mak.iss 'not running' (7):
+    #
+    # Because whitespace can vary, use the complete logical
+    # line after removing formatting.
+
+    action_text = line[1:].strip()
+
+    parts = action_text.split()
+
+    if not parts:
+        continue
+
+    action_id = parts[0]
+
+    resource_id = None
+
+    for candidate in resource_ids_sorted:
+
+        if action_id.startswith(
+            candidate + "_"
+        ):
+
+            resource_id = candidate
+
+            break
+
+    node_name = ""
+
+    if "on" in parts:
+
+        try:
+            on_index = parts.index("on")
+
+            if on_index + 1 < len(parts):
+                node_name = parts[
+                    on_index + 1
+                ]
+
+        except Exception:
+            pass
+
+    result_text = ""
+
+    match = re.search(
+        r"'([^']*)'\s*\(([-0-9]+)\)",
+        action_text
+    )
+
+    if match:
+
+        result_text = (
+            match.group(1)
+            + " ("
+            + match.group(2)
+            + ")"
+        )
+
+    failed_actions.append({
+
+        "action": action_id,
+
+        "resource": resource_id
+        if resource_id
+        else action_id,
+
+        "node": node_name,
+
+        "result": result_text
+    })
+
+
+failed_action_resources = set()
+
+for action in failed_actions:
+
+    if action["resource"] in resources:
+
+        failed_action_resources.add(
+            action["resource"]
+        )
+
+
+# ============================================================
+# CURRENT RESOURCE FAILURES
+# ============================================================
+
+current_failed_resources = set()
+
+for resource_id, resource in resources.items():
+
+    if resource["failed"]:
+
+        current_failed_resources.add(
             resource_id
-        ] = group_id
+        )
 
 
 # ============================================================
@@ -924,9 +931,7 @@ constraint_counts = {
     "anti_colocation": 0
 }
 
-
 constraints_section = None
-
 
 for elem in cib_root.iter():
 
@@ -945,15 +950,11 @@ if constraints_section is not None:
 
         if tag == "rsc_order":
 
-            constraint_counts[
-                "order"
-            ] += 1
+            constraint_counts["order"] += 1
 
         elif tag == "rsc_colocation":
 
-            constraint_counts[
-                "colocation"
-            ] += 1
+            constraint_counts["colocation"] += 1
 
             score = constraint.get(
                 "score",
@@ -962,9 +963,7 @@ if constraints_section is not None:
 
             if (
                 score == "-INFINITY"
-                or score.startswith(
-                    "-INFINITY"
-                )
+                or score.startswith("-INFINITY")
             ):
 
                 constraint_counts[
@@ -973,15 +972,11 @@ if constraints_section is not None:
 
         elif tag == "rsc_location":
 
-            constraint_counts[
-                "location"
-            ] += 1
+            constraint_counts["location"] += 1
 
         elif tag == "rsc_ticket":
 
-            constraint_counts[
-                "ticket"
-            ] += 1
+            constraint_counts["ticket"] += 1
 
 
 # ============================================================
@@ -990,19 +985,27 @@ if constraints_section is not None:
 
 quorum_present = True
 
-# Look for quorum-related status in crm_mon XML.
-# Pacemaker 2.x generally exposes quorum through status/
-# tickets/node information, but the exact XML layout can vary.
+pcs_status_lower = pcs_status.lower()
 
-crm_text_lower = crm_xml.lower()
+if "without quorum" in pcs_status_lower:
 
-if "partition with quorum" in crm_text_lower:
+    quorum_present = False
+
+elif "partition with quorum" in pcs_status_lower:
 
     quorum_present = True
 
-elif "without quorum" in crm_text_lower:
+else:
 
-    quorum_present = False
+    crm_text_lower = crm_xml.lower()
+
+    if "without quorum" in crm_text_lower:
+
+        quorum_present = False
+
+    elif "partition with quorum" in crm_text_lower:
+
+        quorum_present = True
 
 
 # ============================================================
@@ -1011,15 +1014,11 @@ elif "without quorum" in crm_text_lower:
 
 group_states = {}
 
-
 for group_id, group in groups.items():
 
     running = []
-
     stopped = []
-
     failed = []
-
     unmanaged = []
 
     for resource_id in group["members"]:
@@ -1030,40 +1029,34 @@ for group_id, group in groups.items():
 
         if resource is None:
 
-            stopped.append(
-                resource_id
-            )
+            stopped.append(resource_id)
 
             continue
 
         if not resource["managed"]:
 
-            unmanaged.append(
-                resource_id
-            )
+            unmanaged.append(resource_id)
 
-        if resource_id in failed_resources:
+        if resource_id in current_failed_resources:
 
-            failed.append(
-                resource_id
-            )
+            failed.append(resource_id)
 
         if (
             resource["active"]
             and resource["node"]
         ):
 
-            running.append(
-                resource_id
-            )
+            running.append(resource_id)
 
         else:
 
-            stopped.append(
-                resource_id
-            )
+            stopped.append(resource_id)
 
-    if len(running) == 0:
+    if group["admin_disabled"]:
+
+        state = "DISABLED"
+
+    elif len(running) == 0:
 
         state = "NOT RUNNING"
 
@@ -1101,6 +1094,8 @@ running_count = 0
 stopped_count = 0
 failed_count = 0
 unmanaged_count = 0
+administratively_stopped_count = 0
+unexpected_stopped_count = 0
 
 
 for resource_id, resource in resources.items():
@@ -1113,7 +1108,15 @@ for resource_id, resource in resources.items():
 
         stopped_count += 1
 
-    if resource_id in failed_resources:
+        if resource["admin_disabled"]:
+
+            administratively_stopped_count += 1
+
+        else:
+
+            unexpected_stopped_count += 1
+
+    if resource_id in current_failed_resources:
 
         failed_count += 1
 
@@ -1158,6 +1161,7 @@ for node in nodes.values():
 running_groups = 0
 degraded_groups = 0
 stopped_groups = 0
+disabled_groups = 0
 
 
 for state in group_states.values():
@@ -1169,6 +1173,10 @@ for state in group_states.values():
     elif state["state"] == "DEGRADED":
 
         degraded_groups += 1
+
+    elif state["state"] == "DISABLED":
+
+        disabled_groups += 1
 
     else:
 
@@ -1191,13 +1199,9 @@ for resource_id, resource in resources.items():
 
     resource_lower = resource_id.lower()
 
-    if resource_lower.startswith(
-        "clnvrm"
-    ):
+    if resource_lower.startswith("clnvrm"):
 
-        parts = resource_lower.split(
-            "-"
-        )
+        parts = resource_lower.split("-")
 
         if len(parts) >= 1:
 
@@ -1219,7 +1223,7 @@ for resource_id, resource in resources.items():
 
 
 # ============================================================
-# NODE HEIGHT CALCULATION
+# NODE HEIGHT
 # ============================================================
 
 def node_height(node):
@@ -1229,17 +1233,13 @@ def node_height(node):
     )
 
     return (
-
         NODE_HEADER_HEIGHT
-
         + 20
-
         + resource_count
         * (
             NODE_RESOURCE_HEIGHT
             + NODE_RESOURCE_GAP
         )
-
         + 20
     )
 
@@ -1248,9 +1248,7 @@ node_heights = {}
 
 for node_name, node in nodes.items():
 
-    node_heights[
-        node_name
-    ] = node_height(
+    node_heights[node_name] = node_height(
         node
     )
 
@@ -1262,49 +1260,56 @@ max_node_height = max(
 
 
 # ============================================================
-# DASHBOARD PANEL HEIGHT
+# UNASSIGNED / STOPPED RESOURCE STRIP
+# ============================================================
+
+unassigned_resources = []
+
+for resource_id, resource in resources.items():
+
+    if not resource["node"]:
+
+        unassigned_resources.append(
+            resource_id
+        )
+
+
+unassigned_resources.sort()
+
+UNASSIGNED_STRIP_HEIGHT = 0
+
+if unassigned_resources:
+
+    UNASSIGNED_STRIP_HEIGHT = 125
+
+
+# ============================================================
+# DASHBOARD DIMENSIONS
 # ============================================================
 
 bottom_panel_height = 370
 
-
-# ============================================================
-# IMAGE DIMENSIONS
-# ============================================================
-
 node_names = sorted(
     nodes.keys()
 )
-
 
 node_count = max(
     len(node_names),
     1
 )
 
-
 image_width = (
-
     SIDE_MARGIN * 2
-
-    + node_count
-    * NODE_WIDTH
-
-    + (node_count - 1)
-    * NODE_GAP
+    + node_count * NODE_WIDTH
+    + (node_count - 1) * NODE_GAP
 )
 
-
 image_height = (
-
     TOP_MARGIN
-
     + max_node_height
-
+    + UNASSIGNED_STRIP_HEIGHT
     + PANEL_GAP
-
     + bottom_panel_height
-
     + BOTTOM_MARGIN
 )
 
@@ -1322,10 +1327,63 @@ image = Image.new(
     WHITE
 )
 
+draw = ImageDraw.Draw(image)
 
-draw = ImageDraw.Draw(
-    image
+
+# ============================================================
+# HEALTH LOGIC
+# ============================================================
+
+# IMPORTANT:
+#
+# Administratively disabled resources are NOT considered
+# cluster failures.
+#
+# Failed resource actions ARE considered an attention
+# condition, even if the resource is currently running.
+#
+# A resource that is stopped without target-role=Stopped is
+# considered an unexpected stopped resource.
+
+cluster_healthy = (
+    online_nodes == len(nodes)
+    and standby_nodes == 0
+    and offline_nodes == 0
+    and maintenance_nodes == 0
+    and degraded_groups == 0
+    and stopped_groups == 0
+    and unexpected_stopped_count == 0
+    and failed_count == 0
+    and len(failed_actions) == 0
+    and unmanaged_count == 0
+    and quorum_present
+    and constraint_counts["anti_colocation"] > 0
 )
+
+
+if cluster_healthy:
+
+    health_text = "CLUSTER HEALTH: HEALTHY"
+
+    health_subtext = (
+        "All active cluster conditions are normal"
+    )
+
+    health_color = GREEN
+
+    health_fill = LIGHT_GREEN
+
+else:
+
+    health_text = "CLUSTER HEALTH: ATTENTION"
+
+    health_subtext = (
+        "One or more cluster conditions require review"
+    )
+
+    health_color = RED
+
+    health_fill = LIGHT_RED
 
 
 # ============================================================
@@ -1371,64 +1429,11 @@ centered_text(
 
 
 # ============================================================
-# TOP RIGHT HEALTH BADGE
+# HEALTH BADGE
 # ============================================================
 
-cluster_healthy = (
-
-    online_nodes == len(nodes)
-
-    and standby_nodes == 0
-
-    and offline_nodes == 0
-
-    and maintenance_nodes == 0
-
-    and running_groups == len(groups)
-
-    and degraded_groups == 0
-
-    and stopped_groups == 0
-
-    and failed_count == 0
-
-    and stopped_count == 0
-
-    and unmanaged_count == 0
-
-    and quorum_present
-)
-
-
-if cluster_healthy:
-
-    health_text = "CLUSTER HEALTH: HEALTHY"
-
-    health_subtext = (
-        "All nodes and resources are "
-        "running normally"
-    )
-
-    health_color = GREEN
-
-    health_fill = LIGHT_GREEN
-
-else:
-
-    health_text = "CLUSTER HEALTH: ATTENTION"
-
-    health_subtext = (
-        "One or more cluster conditions "
-        "require review"
-    )
-
-    health_color = RED
-
-    health_fill = LIGHT_RED
-
-
-badge_width = 330
-badge_height = 58
+badge_width = 360
+badge_height = 62
 
 badge_x1 = (
     image_width
@@ -1461,9 +1466,9 @@ draw.ellipse(
 
     (
         badge_x1 + 12,
-        badge_y1 + 12,
-        badge_x1 + 42,
-        badge_y1 + 42
+        badge_y1 + 13,
+        badge_x1 + 43,
+        badge_y1 + 44
     ),
 
     fill=health_color
@@ -1474,9 +1479,9 @@ centered_text(
 
     draw,
 
-    badge_x1 + 27,
+    badge_x1 + 27.5,
 
-    badge_y1 + 27,
+    badge_y1 + 28.5,
 
     "✓" if cluster_healthy else "!",
 
@@ -1489,7 +1494,7 @@ centered_text(
 draw.text(
 
     (
-        badge_x1 + 52,
+        badge_x1 + 53,
         badge_y1 + 10
     ),
 
@@ -1504,17 +1509,15 @@ draw.text(
 draw.text(
 
     (
-        badge_x1 + 52,
-        badge_y1 + 32
+        badge_x1 + 53,
+        badge_y1 + 34
     ),
 
     health_subtext,
 
     font=SMALL_FONT,
 
-    fill=DARK_GREEN
-    if cluster_healthy
-    else RED
+    fill=DARK_GREEN if cluster_healthy else RED
 )
 
 
@@ -1523,7 +1526,6 @@ draw.text(
 # ============================================================
 
 node_y = TOP_MARGIN
-
 
 for node_name in node_names:
 
@@ -1538,38 +1540,32 @@ for node_name in node_names:
         )
     )
 
-
     # --------------------------------------------------------
-    # Determine node status
+    # NODE STATUS
     # --------------------------------------------------------
 
     if node["maintenance"]:
 
         status = "MAINTENANCE"
-
         header_color = GRAY
 
     elif not node["online"]:
 
         status = "OFFLINE"
-
         header_color = RED
 
     elif node["standby"]:
 
         status = "STANDBY"
-
         header_color = ORANGE
 
     else:
 
         status = "ONLINE"
-
         header_color = GREEN
 
-
     # --------------------------------------------------------
-    # Node box
+    # NODE BOX
     # --------------------------------------------------------
 
     draw.rounded_rectangle(
@@ -1590,9 +1586,8 @@ for node_name in node_names:
         fill=WHITE
     )
 
-
     # --------------------------------------------------------
-    # Header
+    # HEADER
     # --------------------------------------------------------
 
     draw.rounded_rectangle(
@@ -1609,22 +1604,17 @@ for node_name in node_names:
         fill=header_color
     )
 
-
     draw.rectangle(
 
         (
             x,
-            node_y
-            + NODE_HEADER_HEIGHT
-            - 10,
+            node_y + NODE_HEADER_HEIGHT - 10,
             x + NODE_WIDTH,
-            node_y
-            + NODE_HEADER_HEIGHT
+            node_y + NODE_HEADER_HEIGHT
         ),
 
         fill=header_color
     )
-
 
     centered_text(
 
@@ -1634,20 +1624,12 @@ for node_name in node_names:
 
         node_y + 25,
 
-        shorten(
-            node_name,
-            29
-        ),
+        shorten(node_name, 29),
 
         NODE_FONT,
 
         WHITE
     )
-
-
-    # --------------------------------------------------------
-    # Status
-    # --------------------------------------------------------
 
     centered_text(
 
@@ -1664,11 +1646,6 @@ for node_name in node_names:
         WHITE
     )
 
-
-    # --------------------------------------------------------
-    # Resource count
-    # --------------------------------------------------------
-
     centered_text(
 
         draw,
@@ -1678,27 +1655,22 @@ for node_name in node_names:
         node_y + 84,
 
         "Resources: "
-        + str(
-            len(node["resources"])
-        ),
+        + str(len(node["resources"])),
 
         COUNT_FONT,
 
         WHITE
     )
 
-
     # --------------------------------------------------------
-    # Resources
+    # RESOURCES
     # --------------------------------------------------------
 
     resource_y = (
-
         node_y
         + NODE_HEADER_HEIGHT
         + 12
     )
-
 
     for resource_id in sorted(
         node["resources"]
@@ -1711,49 +1683,57 @@ for node_name in node_names:
         if resource is None:
             continue
 
+        # State priority:
+        # 1. Current failure
+        # 2. Failed action history
+        # 3. Unmanaged
+        # 4. Administrative stopped
+        # 5. Ordinary stopped
+        # 6. Running
 
-        # Resource state
-
-        if resource_id in failed_resources:
+        if resource_id in current_failed_resources:
 
             resource_fill = LIGHT_RED
-
             resource_outline = RED
-
             state_text = "FAILED"
+            state_color = RED
 
+        elif resource_id in failed_action_resources:
+
+            resource_fill = LIGHT_RED
+            resource_outline = RED
+            state_text = "ACTION FAIL"
             state_color = RED
 
         elif not resource["managed"]:
 
             resource_fill = LIGHT_GRAY
-
             resource_outline = GRAY
-
             state_text = "UNMANAGED"
-
             state_color = GRAY
+
+        elif not resource["active"] and resource[
+            "admin_disabled"
+        ]:
+
+            resource_fill = LIGHT_ORANGE
+            resource_outline = ORANGE
+            state_text = "DISABLED"
+            state_color = ORANGE
 
         elif not resource["active"]:
 
             resource_fill = LIGHT_ORANGE
-
             resource_outline = ORANGE
-
             state_text = "STOPPED"
-
             state_color = ORANGE
 
         else:
 
             resource_fill = LIGHT_GREEN
-
             resource_outline = GREEN
-
             state_text = "RUNNING"
-
             state_color = GREEN
-
 
         draw.rounded_rectangle(
 
@@ -1774,26 +1754,10 @@ for node_name in node_names:
             fill=resource_fill
         )
 
-
-        group_id = resource_to_group.get(
-            resource_id
+        display_name = shorten(
+            resource_id,
+            25
         )
-
-
-        if group_id:
-
-            display_name = shorten(
-                resource_id,
-                25
-            )
-
-        else:
-
-            display_name = shorten(
-                resource_id,
-                27
-            )
-
 
         draw.text(
 
@@ -1809,7 +1773,6 @@ for node_name in node_names:
             fill=BLACK
         )
 
-
         state_width, _ = text_size(
 
             draw,
@@ -1818,7 +1781,6 @@ for node_name in node_names:
 
             SMALL_FONT
         )
-
 
         draw.text(
 
@@ -1837,12 +1799,132 @@ for node_name in node_names:
             fill=state_color
         )
 
-
         resource_y += (
-
             NODE_RESOURCE_HEIGHT
             + NODE_RESOURCE_GAP
         )
+
+
+# ============================================================
+# UNASSIGNED / STOPPED RESOURCES
+# ============================================================
+
+node_bottom = (
+    TOP_MARGIN
+    + max_node_height
+)
+
+if unassigned_resources:
+
+    strip_y = node_bottom + 8
+
+    strip_x = SIDE_MARGIN
+
+    strip_width = image_width - (
+        SIDE_MARGIN * 2
+    )
+
+    draw.rounded_rectangle(
+
+        (
+            strip_x,
+            strip_y,
+            strip_x + strip_width,
+            strip_y + UNASSIGNED_STRIP_HEIGHT - 8
+        ),
+
+        radius=7,
+
+        outline=ORANGE,
+
+        width=2,
+
+        fill=LIGHT_ORANGE
+    )
+
+    draw.text(
+
+        (
+            strip_x + 12,
+            strip_y + 9
+        ),
+
+        "STOPPED / NOT ASSIGNED TO A NODE",
+
+        font=PANEL_TEXT_BOLD,
+
+        fill=ORANGE
+    )
+
+    # Group stopped resources by CLNVRM instance.
+
+    stopped_by_instance = defaultdict(list)
+
+    for resource_id in unassigned_resources:
+
+        lower_id = resource_id.lower()
+
+        if lower_id.startswith("clnvrm"):
+
+            instance = lower_id.split("-")[0]
+
+        else:
+
+            instance = "OTHER"
+
+        stopped_by_instance[
+            instance
+        ].append(resource_id)
+
+    text_x = strip_x + 12
+    text_y = strip_y + 38
+
+    line_height = 23
+
+    for instance in sorted(
+        stopped_by_instance.keys()
+    ):
+
+        resources_for_instance = (
+            stopped_by_instance[instance]
+        )
+
+        instance_text = (
+            instance.upper()
+            + ": "
+            + ", ".join(
+                resources_for_instance
+            )
+        )
+
+        instance_text = shorten(
+            instance_text,
+            175
+        )
+
+        draw.text(
+
+            (
+                text_x,
+                text_y
+            ),
+
+            instance_text,
+
+            font=SMALL_FONT,
+
+            fill=DARK_GRAY
+        )
+
+        text_y += line_height
+
+        if text_y > (
+            strip_y
+            + UNASSIGNED_STRIP_HEIGHT
+            - 25
+        ):
+
+            break
 
 
 # ============================================================
@@ -1850,30 +1932,25 @@ for node_name in node_names:
 # ============================================================
 
 panel_y = (
-
     TOP_MARGIN
     + max_node_height
+    + UNASSIGNED_STRIP_HEIGHT
     + PANEL_GAP
 )
-
 
 available_width = (
     image_width
     - SIDE_MARGIN * 2
 )
 
-
-# Four panels
-
 panel_width = (
-
     available_width
     - PANEL_GAP * 3
 ) / 4
 
 
 # ============================================================
-# PANEL DRAWING FUNCTION
+# PANEL FUNCTION
 # ============================================================
 
 def draw_panel(
@@ -1903,7 +1980,6 @@ def draw_panel(
         fill=WHITE
     )
 
-
     draw.rounded_rectangle(
 
         (
@@ -1918,7 +1994,6 @@ def draw_panel(
         fill=header_color
     )
 
-
     draw.rectangle(
 
         (
@@ -1930,7 +2005,6 @@ def draw_panel(
 
         fill=header_color
     )
-
 
     draw.text(
 
@@ -1954,7 +2028,6 @@ def draw_panel(
 x1 = SIDE_MARGIN
 
 draw_panel(
-
     x1,
     panel_y,
     panel_width,
@@ -1963,7 +2036,6 @@ draw_panel(
     BLUE
 )
 
-
 summary_x = x1 + PANEL_PADDING
 
 summary_y = (
@@ -1971,7 +2043,6 @@ summary_y = (
     + PANEL_HEADER_HEIGHT
     + 15
 )
-
 
 summary_lines = [
 
@@ -1992,8 +2063,9 @@ summary_lines = [
 
     (
         "Resource Groups",
-        "{}/{}/{}".format(
+        "{}/{}/{}/{}".format(
             running_groups,
+            disabled_groups,
             degraded_groups,
             stopped_groups
         )
@@ -2010,38 +2082,51 @@ summary_lines = [
     ),
 
     (
+        "Admin stopped",
+        str(
+            administratively_stopped_count
+        )
+    ),
+
+    (
+        "Unexpected stopped",
+        str(
+            unexpected_stopped_count
+        )
+    ),
+
+    (
+        "Failed actions",
+        str(
+            len(failed_actions)
+        )
+    ),
+
+    (
         "Order Constraints",
         str(
-            constraint_counts[
-                "order"
-            ]
+            constraint_counts["order"]
         )
     ),
 
     (
         "Colocation",
         str(
-            constraint_counts[
-                "colocation"
-            ]
+            constraint_counts["colocation"]
         )
     ),
 
     (
         "Anti-colocation",
         str(
-            constraint_counts[
-                "anti_colocation"
-            ]
+            constraint_counts["anti_colocation"]
         )
     ),
 
     (
         "Location",
         str(
-            constraint_counts[
-                "location"
-            ]
+            constraint_counts["location"]
         )
     ),
 
@@ -2070,7 +2155,6 @@ for label, value in summary_lines:
         fill=DARK_GRAY
     )
 
-
     value_width, _ = text_size(
 
         draw,
@@ -2079,7 +2163,6 @@ for label, value in summary_lines:
 
         PANEL_TEXT_BOLD
     )
-
 
     draw.text(
 
@@ -2095,11 +2178,25 @@ for label, value in summary_lines:
 
         font=PANEL_TEXT_BOLD,
 
-        fill=BLACK
+        fill=(
+            RED
+            if (
+                label in (
+                    "Unexpected stopped",
+                    "Failed actions"
+                )
+                and value != "0"
+            )
+            else (
+                ORANGE
+                if label == "Admin stopped"
+                and value != "0"
+                else BLACK
+            )
+        )
     )
 
-
-    summary_y += 30
+    summary_y += 25
 
 
 # ============================================================
@@ -2107,15 +2204,12 @@ for label, value in summary_lines:
 # ============================================================
 
 x2 = (
-
     x1
     + panel_width
     + PANEL_GAP
 )
 
-
 draw_panel(
-
     x2,
     panel_y,
     panel_width,
@@ -2123,7 +2217,6 @@ draw_panel(
     "RESOURCE DISTRIBUTION",
     GREEN
 )
-
 
 table_x = x2 + PANEL_PADDING
 
@@ -2133,235 +2226,145 @@ table_y = (
     + 12
 )
 
-
-# Table columns
-
 col_node = 0
-
-col_resources = (
-    panel_width * 0.68
-)
-
-col_groups = (
-    panel_width * 0.86
-)
-
+col_resources = panel_width * 0.68
+col_groups = panel_width * 0.86
 
 draw.text(
-
     (
         table_x + col_node,
         table_y
     ),
-
     "Node",
-
     font=PANEL_TEXT_BOLD,
-
     fill=DARK_BLUE
 )
 
-
 draw.text(
-
     (
         table_x + col_resources,
         table_y
     ),
-
     "Resources",
-
     font=PANEL_TEXT_BOLD,
-
     fill=DARK_BLUE
 )
 
-
 draw.text(
-
     (
         table_x + col_groups,
         table_y
     ),
-
     "Groups",
-
     font=PANEL_TEXT_BOLD,
-
     fill=DARK_BLUE
 )
 
-
 table_y += 28
-
 
 for node_name in node_names:
 
     node = nodes[node_name]
 
-    group_count = 0
-
     groups_on_node = set()
 
-    for resource_id in node[
-        "resources"
-    ]:
+    for resource_id in node["resources"]:
 
         group_id = resource_to_group.get(
             resource_id
         )
 
         if group_id:
-
             groups_on_node.add(
                 group_id
             )
 
-    group_count = len(
-        groups_on_node
-    )
-
-
-    display_node = shorten(
-        node_name,
-        28
-    )
-
-
     draw.text(
-
         (
             table_x + col_node,
             table_y
         ),
-
-        display_node,
-
+        shorten(node_name, 28),
         font=SMALL_FONT,
-
         fill=DARK_GRAY
     )
 
-
     draw.text(
-
         (
             table_x + col_resources,
             table_y
         ),
-
-        str(
-            len(
-                node["resources"]
-            )
-        ),
-
+        str(len(node["resources"])),
         font=PANEL_TEXT_FONT,
-
         fill=BLACK
     )
 
-
     draw.text(
-
         (
             table_x + col_groups,
             table_y
         ),
-
-        str(
-            group_count
-        ),
-
+        str(len(groups_on_node)),
         font=PANEL_TEXT_FONT,
-
         fill=BLACK
     )
-
 
     table_y += 28
 
 
-# Total row
-
 draw.line(
-
     (
         table_x,
         table_y - 7,
         table_x + panel_width - 24,
         table_y - 7
     ),
-
     fill=BORDER,
-
     width=1
 )
 
-
 draw.text(
-
     (
         table_x,
         table_y
     ),
-
     "TOTAL",
-
     font=PANEL_TEXT_BOLD,
-
     fill=DARK_BLUE
 )
 
-
 draw.text(
-
     (
         table_x + col_resources,
         table_y
     ),
-
-    str(
-        len(resources)
-    ),
-
+    str(len(resources)),
     font=PANEL_TEXT_BOLD,
-
     fill=BLACK
 )
 
-
 draw.text(
-
     (
         table_x + col_groups,
         table_y
     ),
-
-    str(
-        len(groups)
-    ),
-
+    str(len(groups)),
     font=PANEL_TEXT_BOLD,
-
     fill=BLACK
 )
 
 
 # ============================================================
-# PANEL 3 - CONSTRAINTS + CLNVRM SERVICES
+# PANEL 3 - CONSTRAINTS + SERVICES + FAILURES
 # ============================================================
 
 x3 = (
-
     x2
     + panel_width
     + PANEL_GAP
 )
 
-
 draw_panel(
-
     x3,
     panel_y,
     panel_width,
@@ -2370,78 +2373,56 @@ draw_panel(
     PURPLE
 )
 
-
 constraint_y = (
-
     panel_y
     + PANEL_HEADER_HEIGHT
-    + 14
+    + 12
 )
-
 
 constraint_lines = [
 
     (
         "Order",
-        constraint_counts[
-            "order"
-        ]
+        constraint_counts["order"]
     ),
 
     (
         "Colocation",
-        constraint_counts[
-            "colocation"
-        ]
+        constraint_counts["colocation"]
     ),
 
     (
         "Anti-colocation",
-        constraint_counts[
-            "anti_colocation"
-        ]
+        constraint_counts["anti_colocation"]
     ),
 
     (
         "Location",
-        constraint_counts[
-            "location"
-        ]
+        constraint_counts["location"]
     )
 ]
-
 
 for label, count in constraint_lines:
 
     draw.text(
-
         (
             x3 + PANEL_PADDING,
             constraint_y
         ),
-
         label,
-
         font=PANEL_TEXT_FONT,
-
         fill=DARK_GRAY
     )
-
 
     count_text = str(count)
 
     count_width, _ = text_size(
-
         draw,
-
         count_text,
-
         PANEL_TEXT_BOLD
     )
 
-
     draw.text(
-
         (
             x3
             + panel_width
@@ -2449,78 +2430,52 @@ for label, count in constraint_lines:
             - count_width,
             constraint_y
         ),
-
         count_text,
-
         font=PANEL_TEXT_BOLD,
-
         fill=BLACK
     )
 
+    constraint_y += 23
 
-    constraint_y += 25
 
-
-# ------------------------------------------------------------
-# CLNVRM services
-# ------------------------------------------------------------
-
-constraint_y += 8
-
+constraint_y += 3
 
 draw.line(
-
     (
         x3 + PANEL_PADDING,
         constraint_y,
         x3 + panel_width - PANEL_PADDING,
         constraint_y
     ),
-
     fill=BORDER,
-
     width=1
 )
 
-
-constraint_y += 12
-
+constraint_y += 10
 
 draw.text(
-
     (
         x3 + PANEL_PADDING,
         constraint_y
     ),
-
     "CLNVRM SERVICES",
-
     font=PANEL_TEXT_BOLD,
-
     fill=PURPLE
 )
 
-
-constraint_y += 25
-
+constraint_y += 23
 
 draw.text(
-
     (
         x3 + PANEL_PADDING,
         constraint_y
     ),
-
     "Instances",
-
     font=PANEL_TEXT_FONT,
-
     fill=DARK_GRAY
 )
 
-
 draw.text(
-
     (
         x3
         + panel_width
@@ -2528,47 +2483,32 @@ draw.text(
         - 60,
         constraint_y
     ),
-
-    str(
-        len(
-            clnvrm_instances
-        )
-    ),
-
+    str(len(clnvrm_instances)),
     font=PANEL_TEXT_BOLD,
-
     fill=BLACK
 )
 
-
-constraint_y += 25
-
-
-# Calculate average / common resource count
+constraint_y += 23
 
 if clnvrm_instances:
 
     instance_counts = [
-
         len(data["resources"])
-
-        for data in
-        clnvrm_instances.values()
+        for data in clnvrm_instances.values()
     ]
 
-    if instance_counts:
+    if (
+        instance_counts
+        and len(set(instance_counts)) == 1
+    ):
 
         resource_per_instance = (
-            min(instance_counts)
-            if len(
-                set(instance_counts)
-            ) == 1
-            else "varies"
+            instance_counts[0]
         )
 
     else:
 
-        resource_per_instance = 0
+        resource_per_instance = "varies"
 
 else:
 
@@ -2576,22 +2516,16 @@ else:
 
 
 draw.text(
-
     (
         x3 + PANEL_PADDING,
         constraint_y
     ),
-
     "Resources / instance",
-
     font=PANEL_TEXT_FONT,
-
     fill=DARK_GRAY
 )
 
-
 draw.text(
-
     (
         x3
         + panel_width
@@ -2599,75 +2533,105 @@ draw.text(
         - 60,
         constraint_y
     ),
-
-    str(
-        resource_per_instance
-    ),
-
+    str(resource_per_instance),
     font=PANEL_TEXT_BOLD,
-
     fill=BLACK
 )
 
-
-constraint_y += 25
-
-
-# Anti-colocation status
-
-anti_count = constraint_counts[
-    "anti_colocation"
-]
-
+constraint_y += 23
 
 draw.text(
-
     (
         x3 + PANEL_PADDING,
         constraint_y
     ),
-
-    "VIP anti-colocation",
-
+    "Admin stopped",
     font=PANEL_TEXT_FONT,
-
     fill=DARK_GRAY
 )
 
-
-if anti_count > 0:
-
-    anti_text = (
-        "Configured ("
-        + str(anti_count)
-        + ")"
-    )
-
-    anti_color = GREEN
-
-else:
-
-    anti_text = "NOT CONFIGURED"
-
-    anti_color = RED
-
-
 draw.text(
-
     (
         x3
         + panel_width
         - PANEL_PADDING
-        - 105,
+        - 60,
         constraint_y
     ),
-
-    anti_text,
-
-    font=SMALL_FONT,
-
-    fill=anti_color
+    str(administratively_stopped_count),
+    font=PANEL_TEXT_BOLD,
+    fill=ORANGE
 )
+
+constraint_y += 23
+
+draw.text(
+    (
+        x3 + PANEL_PADDING,
+        constraint_y
+    ),
+    "Failed actions",
+    font=PANEL_TEXT_FONT,
+    fill=DARK_GRAY
+)
+
+draw.text(
+    (
+        x3
+        + panel_width
+        - PANEL_PADDING
+        - 60,
+        constraint_y
+    ),
+    str(len(failed_actions)),
+    font=PANEL_TEXT_BOLD,
+    fill=(
+        RED
+        if failed_actions
+        else GREEN
+    )
+)
+
+# Show up to three failed actions.
+
+if failed_actions:
+
+    constraint_y += 27
+
+    draw.text(
+        (
+            x3 + PANEL_PADDING,
+            constraint_y
+        ),
+        "FAILED ACTIONS",
+        font=SMALL_BOLD,
+        fill=RED
+    )
+
+    constraint_y += 19
+
+    for action in failed_actions[:3]:
+
+        failure_line = (
+            action["action"]
+            + " @ "
+            + action["node"]
+        )
+
+        draw.text(
+            (
+                x3 + PANEL_PADDING,
+                constraint_y
+            ),
+            shorten(
+                failure_line,
+                42
+            ),
+            font=SMALL_FONT,
+            fill=RED
+        )
+
+        constraint_y += 19
 
 
 # ============================================================
@@ -2675,71 +2639,51 @@ draw.text(
 # ============================================================
 
 x4 = (
-
     x3
     + panel_width
     + PANEL_GAP
 )
 
-
 draw_panel(
-
     x4,
     panel_y,
     panel_width,
     bottom_panel_height,
     "CLUSTER HEALTH STATUS",
-    GREEN
-    if cluster_healthy
-    else RED
+    GREEN if cluster_healthy else RED
 )
-
 
 health_y = (
-
     panel_y
     + PANEL_HEADER_HEIGHT
-    + 16
+    + 14
 )
-
 
 if cluster_healthy:
 
     draw.text(
-
         (
             x4 + PANEL_PADDING,
             health_y
         ),
-
-        "✓  All systems are running normally.",
-
+        "✓  All active systems are healthy.",
         font=PANEL_TEXT_BOLD,
-
         fill=DARK_GREEN
     )
 
 else:
 
     draw.text(
-
         (
             x4 + PANEL_PADDING,
             health_y
         ),
-
-        "!  Problems detected.",
-
+        "!  Review conditions below.",
         font=PANEL_TEXT_BOLD,
-
         fill=RED
     )
 
-
-health_y += 38
-
-
-# Health checks
+health_y += 35
 
 health_checks = [
 
@@ -2772,30 +2716,53 @@ health_checks = [
     ),
 
     (
-        running_groups == len(groups),
-        "{} resource groups running".format(
+        running_groups == len(groups) - disabled_groups,
+        "{} active resource groups running".format(
             running_groups
         )
     ),
 
     (
-        degraded_groups == 0,
-        "{} degraded groups".format(
-            degraded_groups
+        True,
+        "{} resource group(s) administratively stopped".format(
+            disabled_groups
+        )
+    ),
+
+    (
+        degraded_groups == 0
+        and stopped_groups == 0,
+        "{} degraded / {} not running groups".format(
+            degraded_groups,
+            stopped_groups
+        )
+    ),
+
+    (
+        unexpected_stopped_count == 0,
+        "{} unexpected stopped resources".format(
+            unexpected_stopped_count
+        )
+    ),
+
+    (
+        administratively_stopped_count >= 0,
+        "{} administratively stopped resources".format(
+            administratively_stopped_count
         )
     ),
 
     (
         failed_count == 0,
-        "{} failed resources".format(
+        "{} currently failed resources".format(
             failed_count
         )
     ),
 
     (
-        stopped_count == 0,
-        "{} stopped resources".format(
-            stopped_count
+        len(failed_actions) == 0,
+        "{} failed resource actions".format(
+            len(failed_actions)
         )
     ),
 
@@ -2814,9 +2781,7 @@ health_checks = [
     ),
 
     (
-        constraint_counts[
-            "anti_colocation"
-        ] > 0,
+        constraint_counts["anti_colocation"] > 0,
         "VIP anti-colocation configured"
         if constraint_counts[
             "anti_colocation"
@@ -2831,15 +2796,12 @@ for check_ok, text in health_checks:
     if check_ok:
 
         symbol = "✓"
-
         color = GREEN
 
     else:
 
         symbol = "!"
-
         color = RED
-
 
     draw.ellipse(
 
@@ -2852,7 +2814,6 @@ for check_ok, text in health_checks:
 
         fill=color
     )
-
 
     centered_text(
 
@@ -2869,7 +2830,6 @@ for check_ok, text in health_checks:
         WHITE
     )
 
-
     draw.text(
 
         (
@@ -2883,13 +2843,18 @@ for check_ok, text in health_checks:
 
         font=SMALL_FONT,
 
-        fill=DARK_GRAY
-        if check_ok
-        else RED
+        fill=DARK_GRAY if check_ok else RED
     )
 
+    health_y += 23
 
-    health_y += 25
+    if health_y > (
+        panel_y
+        + bottom_panel_height
+        - 20
+    ):
+
+        break
 
 
 # ============================================================
@@ -2901,7 +2866,6 @@ legend_y = (
     - 34
 )
 
-
 legend_items = [
 
     (
@@ -2910,12 +2874,12 @@ legend_items = [
     ),
 
     (
-        "Stopped / Standby",
+        "Stopped / Disabled",
         ORANGE
     ),
 
     (
-        "Failed / Offline",
+        "Failed / Action failure",
         RED
     ),
 
@@ -2930,27 +2894,19 @@ legend_items = [
     )
 ]
 
-
 legend_x = SIDE_MARGIN
 
-
 draw.text(
-
     (
         legend_x,
         legend_y - 7
     ),
-
     "Legend:",
-
     font=LEGEND_FONT,
-
     fill=DARK_BLUE
 )
 
-
 legend_x += 55
-
 
 for label, color in legend_items:
 
@@ -2966,7 +2922,6 @@ for label, color in legend_items:
         fill=color
     )
 
-
     draw.text(
 
         (
@@ -2981,16 +2936,11 @@ for label, color in legend_items:
         fill=DARK_GRAY
     )
 
-
     label_width, _ = text_size(
-
         draw,
-
         label,
-
         LEGEND_FONT
     )
-
 
     legend_x += (
         30
@@ -3006,11 +2956,8 @@ timestamp = datetime.now().strftime(
     "%Y%m%d_%H%M%S"
 )
 
-
 output_file = (
-
     OUTPUT_DIR
-
     / (
         safe_name(cluster_name)
         + "_resource_map_"
@@ -3018,7 +2965,6 @@ output_file = (
         + ".png"
     )
 )
-
 
 image.save(
     output_file,
@@ -3079,6 +3025,11 @@ print(
 )
 
 print(
+    "  Disabled           : "
+    + str(disabled_groups)
+)
+
+print(
     "  Degraded           : "
     + str(degraded_groups)
 )
@@ -3106,6 +3057,16 @@ print(
 )
 
 print(
+    "  Admin stopped      : "
+    + str(administratively_stopped_count)
+)
+
+print(
+    "  Unexpected stopped : "
+    + str(unexpected_stopped_count)
+)
+
+print(
     "  Failed             : "
     + str(failed_count)
 )
@@ -3118,35 +3079,43 @@ print(
 print()
 
 print(
-    "Constraints:"
+    "Failed actions       : "
+    + str(len(failed_actions))
 )
+
+for action in failed_actions:
+
+    print(
+        "  - "
+        + action["action"]
+        + " on "
+        + action["node"]
+        + " "
+        + action["result"]
+    )
+
+print()
+
+print("Constraints:")
 
 print(
     "  Order              : "
-    + str(
-        constraint_counts["order"]
-    )
+    + str(constraint_counts["order"])
 )
 
 print(
     "  Colocation         : "
-    + str(
-        constraint_counts["colocation"]
-    )
+    + str(constraint_counts["colocation"])
 )
 
 print(
     "  Anti-colocation    : "
-    + str(
-        constraint_counts["anti_colocation"]
-    )
+    + str(constraint_counts["anti_colocation"])
 )
 
 print(
     "  Location           : "
-    + str(
-        constraint_counts["location"]
-    )
+    + str(constraint_counts["location"])
 )
 
 print()

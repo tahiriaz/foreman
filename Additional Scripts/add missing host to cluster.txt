@@ -1,0 +1,362 @@
+###############################################################################
+# ADD A NEW RHEL 8.10 NODE TO CLNVRM020
+#
+# Example new node:
+#   Hostname : tvsnvrapp024mp.mak.iss
+#   ring0    : 10.101.44.34
+#   ring1    : 10.101.28.34
+#   iLO      : 10.101.18.44
+#   Node ID  : 8
+#
+# Run commands marked [EXISTING NODE] from an existing cluster node
+# Run commands marked [NEW NODE] on the new server
+###############################################################################
+
+
+###############################################################################
+# 1. NEW NODE - BASIC HOSTNAME / DNS / NETWORK CHECK
+###############################################################################
+
+# [NEW NODE]
+
+hostnamectl set-hostname tvsnvrapp024mp.mak.iss
+
+hostname -f
+
+getent hosts tvsnvrapp024mp.mak.iss
+
+ip -br addr
+ip route
+
+
+###############################################################################
+# 2. NEW NODE - INSTALL REQUIRED PCS/PACEMAKER PACKAGES
+###############################################################################
+
+# [NEW NODE]
+
+rpm -q pcs pacemaker corosync resource-agents fence-agents-ipmilan ipmitool
+
+# If packages are missing, install them from your local repository:
+#
+# dnf install -y pcs pacemaker corosync resource-agents fence-agents-ipmilan ipmitool
+
+
+###############################################################################
+# 3. NEW NODE - START AND ENABLE PCS DAEMON
+###############################################################################
+
+# [NEW NODE]
+
+systemctl enable --now pcsd
+
+systemctl status pcsd --no-pager
+
+ss -lntp | grep 2224
+
+
+###############################################################################
+# 4. NEW NODE - ALLOW PCS TCP/2224 THROUGH FIREWALL
+###############################################################################
+
+# [NEW NODE]
+
+firewall-cmd --permanent --add-port=2224/tcp
+firewall-cmd --reload
+
+firewall-cmd --query-port=2224/tcp
+
+# Expected:
+# yes
+
+
+###############################################################################
+# 5. EXISTING NODE - VERIFY CONNECTIVITY TO NEW NODE
+###############################################################################
+
+# [EXISTING NODE]
+
+getent hosts tvsnvrapp024mp.mak.iss
+
+ping -c 3 tvsnvrapp024mp.mak.iss
+
+nc -zv tvsnvrapp024mp.mak.iss 2224
+
+curl -k -v https://tvsnvrapp024mp.mak.iss:2224/remote/status
+
+
+###############################################################################
+# 6. EXISTING NODE - AUTHENTICATE NEW NODE WITH PCS
+###############################################################################
+
+# [EXISTING NODE]
+
+pcs host auth tvsnvrapp024mp.mak.iss -u hacluster
+
+# Enter the hacluster password when prompted.
+#
+# Expected:
+# tvsnvrapp024mp.mak.iss: Authorized
+
+
+###############################################################################
+# 7. EXISTING NODE - CHECK EXISTING COROSYNC CONFIGURATION
+#
+# Your CLNVRM020 cluster uses two KNET links:
+#   ring0 = 10.101.44.x
+#   ring1 = 10.101.28.x
+###############################################################################
+
+# [EXISTING NODE]
+
+cat /etc/corosync/corosync.conf
+
+
+###############################################################################
+# 8. EXISTING NODE - ADD NEW NODE WITH BOTH COROSYNC ADDRESSES
+###############################################################################
+
+# [EXISTING NODE]
+
+pcs cluster node add tvsnvrapp024mp.mak.iss \
+    addr=10.101.44.34 \
+    addr=10.101.28.34
+
+# Do NOT use only:
+#
+# pcs cluster node add tvsnvrapp024mp.mak.iss
+#
+# because this cluster requires two Corosync addresses.
+
+
+###############################################################################
+# 9. NEW NODE - VERIFY SYNCHRONIZED COROSYNC CONFIGURATION
+###############################################################################
+
+# [NEW NODE]
+
+cat /etc/corosync/corosync.conf
+
+# Verify that the new node has:
+#
+# ring0_addr: 10.101.44.34
+# ring1_addr: 10.101.28.34
+# name: tvsnvrapp024mp.mak.iss
+# nodeid: 8
+
+
+###############################################################################
+# 10. VERIFY CLUSTER NETWORK CONNECTIVITY
+###############################################################################
+
+# [EXISTING NODE]
+
+ping -c 3 10.101.44.34
+ping -c 3 10.101.28.34
+
+# [NEW NODE]
+
+ping -c 3 10.101.44.27
+ping -c 3 10.101.28.27
+
+
+###############################################################################
+# 11. NEW NODE - START AND ENABLE CLUSTER SERVICES
+###############################################################################
+
+# [NEW NODE]
+
+pcs cluster start
+
+pcs cluster enable
+
+systemctl status corosync pacemaker pcsd --no-pager
+
+
+###############################################################################
+# 12. EXISTING NODE - VERIFY NEW NODE IS ONLINE
+###############################################################################
+
+# [EXISTING NODE]
+
+pcs status nodes
+
+pcs cluster status
+
+pcs status
+
+
+###############################################################################
+# Expected:
+#
+# 8 nodes configured
+#
+# Online:
+# tvsnvrapp017mp.mak.iss
+# tvsnvrapp018mp.mak.iss
+# tvsnvrapp019mp.mak.iss
+# tvsnvrapp020mp.mak.iss
+# tvsnvrapp021mp.mak.iss
+# tvsnvrapp022mp.mak.iss
+# tvsnvrapp023mp.mak.iss
+# tvsnvrapp024mp.mak.iss
+###############################################################################
+
+
+###############################################################################
+# 13. VERIFY EXISTING RESOURCES / CONSTRAINTS
+###############################################################################
+
+# [EXISTING NODE]
+
+pcs constraint config
+
+pcs status --full
+
+
+# IMPORTANT:
+# Do NOT recreate or modify the existing resource constraints simply because
+# a new node was added.
+#
+# CLNVRM020 already has resource-based constraints that prevent the seven
+# services from sharing nodes.
+#
+# Node 024 becomes an additional eligible/spare node.
+
+
+###############################################################################
+# 14. VERIFY NEW NODE'S iLO CONNECTIVITY
+#
+# Verify the actual iLO IP before creating STONITH.
+###############################################################################
+
+# [EXISTING NODE]
+
+ping -c 3 10.101.18.44
+
+nc -zvu -w3 10.101.18.44 623
+
+curl -k -I https://10.101.18.44/
+
+
+###############################################################################
+# 15. TEST iLO FENCING AGENT MANUALLY
+###############################################################################
+
+# [EXISTING NODE]
+
+fence_ilo4 \
+    -a 10.101.18.44 \
+    -l hpilofence \
+    -L USER \
+    -o status \
+    -v
+
+# If your iLO requires cipher suite 3, verify direct IPMI first:
+#
+# ipmitool -I lanplus \
+#     -H 10.101.18.44 \
+#     -U hpilofence \
+#     -L USER \
+#     -C 3 \
+#     chassis power status
+#
+# Expected:
+# Chassis Power is on
+
+
+###############################################################################
+# 16. CREATE STONITH RESOURCE
+#
+# Match the existing CLNVRM020 STONITH configuration.
+###############################################################################
+
+# [EXISTING NODE]
+
+pcs stonith create fence_tvsnvrapp024mp fence_ilo4 \
+    ip=10.101.18.44 \
+    username=hpilofence \
+    password='YOUR_FENCING_PASSWORD' \
+    pcmk_host_list=tvsnvrapp024mp \
+    privlvl=user \
+    op monitor interval=600s
+
+
+###############################################################################
+# 17. VERIFY STONITH CONFIGURATION
+###############################################################################
+
+# [EXISTING NODE]
+
+pcs stonith config fence_tvsnvrapp024mp
+
+pcs stonith status
+
+
+# Expected structure:
+#
+# Resource: fence_tvsnvrapp024mp (class=stonith type=fence_ilo4)
+#   Attributes:
+#     ip=10.101.18.44
+#     password=...
+#     pcmk_host_list=tvsnvrapp024mp
+#     privlvl=user
+#     username=hpilofence
+#   Operations:
+#     monitor:
+#       interval=600s
+
+
+###############################################################################
+# 18. VERIFY ALL STONITH RESOURCES
+###############################################################################
+
+# [EXISTING NODE]
+
+pcs stonith status
+
+
+# Expected:
+#
+# fence_tvsnvrapp017mp    Started ...
+# fence_tvsnvrapp018mp    Started ...
+# fence_tvsnvrapp019mp    Started ...
+# fence_tvsnvrapp020mp    Started ...
+# fence_tvsnvrapp021mp    Started ...
+# fence_tvsnvrapp022mp    Started ...
+# fence_tvsnvrapp023mp    Started ...
+# fence_tvsnvrapp024mp    Started ...
+
+
+###############################################################################
+# 19. FINAL CLUSTER VALIDATION
+###############################################################################
+
+# [EXISTING NODE]
+
+pcs status
+
+pcs status nodes
+
+pcs cluster status
+
+pcs stonith status
+
+pcs constraint config
+
+pcs status --full
+
+
+###############################################################################
+# FINAL EXPECTED STATE
+#
+# - 8 nodes configured
+# - 8 nodes online
+# - Corosync active/enabled
+# - Pacemaker active/enabled
+# - pcsd active/enabled
+# - 8 STONITH resources configured/started
+# - Existing application resources remain running
+# - Existing constraints remain unchanged
+# - New node available as spare capacity
+###############################################################################

@@ -1,0 +1,450 @@
+#!/bin/bash
+
+# ============================================================
+# Pacemaker Constraint Rebuild Script
+#
+# Site:
+#   M = CLNVRMxxx
+#   R = CLNVRRxxx
+#
+# Example:
+#   SITE="M"  -> CLNVRM031 - CLNVRM037
+#   SITE="R"  -> CLNVRR031 - CLNVRR037
+#
+# Constraint model per cluster:
+#
+#   1. CORE -> NFSREC01-04 order
+#   2. NFSREC01-04 -> CORE colocation INFINITY
+#   3. VIP -> CORE colocation INFINITY
+#   4. VIP <-> VIP anti-colocation -INFINITY
+#
+# For 7 clusters:
+#
+#   28 order constraints
+#   28 NFSREC -> CORE colocations
+#    7 VIP -> CORE colocations
+#   21 VIP anti-colocations
+#
+#   TOTAL = 84 constraints
+# ============================================================
+
+set -euo pipefail
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+SITE="M"
+
+START=31
+END=37
+
+
+# ------------------------------------------------------------
+# Validate SITE
+# ------------------------------------------------------------
+
+if [[ "$SITE" != "M" && "$SITE" != "R" ]]; then
+    echo
+    echo "ERROR: SITE must be M or R."
+    echo
+    echo 'Example: SITE="M"'
+    echo '     or SITE="R"'
+    echo
+    exit 1
+fi
+
+
+# ============================================================
+# VARIABLES
+# ============================================================
+
+SITE_PREFIX="CLNVR${SITE}"
+
+echo
+echo "============================================================"
+echo " Pacemaker Constraint Rebuild"
+echo "============================================================"
+echo
+echo "Site       : $SITE"
+echo "Cluster    : ${SITE_PREFIX}$(printf "%03d" "$START")"
+echo "             to"
+echo "             ${SITE_PREFIX}$(printf "%03d" "$END")"
+echo
+
+
+# ============================================================
+# FUNCTION
+# Delete ALL existing constraints
+# ============================================================
+
+delete_all_constraints()
+{
+    echo "------------------------------------------------------------"
+    echo "1. DELETE EXISTING CONSTRAINTS"
+    echo "------------------------------------------------------------"
+    echo
+
+    CONSTRAINT_IDS=$(
+        pcs constraint config --full 2>/dev/null |
+        sed -nE 's/.*\(id:[[:space:]]*([^)]*)\).*/\1/p' |
+        sort -u
+    )
+
+    if [ -z "$CONSTRAINT_IDS" ]; then
+
+        echo "No existing constraints found."
+        echo
+
+        return 0
+    fi
+
+
+    COUNT=$(
+        echo "$CONSTRAINT_IDS" |
+        wc -l
+    )
+
+
+    echo "Existing constraints found: $COUNT"
+    echo
+
+
+    echo "$CONSTRAINT_IDS"
+    echo
+
+
+    echo "Deleting constraints..."
+    echo
+
+
+    while IFS= read -r ID
+    do
+
+        [ -z "$ID" ] && continue
+
+        echo "  DELETE: $ID"
+
+        pcs constraint delete "$ID"
+
+    done <<< "$CONSTRAINT_IDS"
+
+
+    echo
+    echo "All existing constraints deleted."
+    echo
+}
+
+
+# ============================================================
+# FUNCTION
+# Verify CIB contains no constraints
+# ============================================================
+
+verify_constraints_empty()
+{
+    echo "------------------------------------------------------------"
+    echo "2. VERIFY CONSTRAINTS ARE REMOVED"
+    echo "------------------------------------------------------------"
+    echo
+
+
+    REMAINING=$(
+        pcs constraint config --full 2>/dev/null |
+        sed -nE 's/.*\(id:[[:space:]]*([^)]*)\).*/\1/p' |
+        sort -u
+    )
+
+
+    if [ -n "$REMAINING" ]; then
+
+        echo "ERROR: Constraints still exist:"
+        echo
+
+        echo "$REMAINING"
+
+        echo
+        echo "Aborting."
+        echo
+
+        exit 1
+    fi
+
+
+    echo "OK - CIB contains no constraints."
+    echo
+}
+
+
+# ============================================================
+# 1. DELETE EVERYTHING
+# ============================================================
+
+delete_all_constraints
+
+
+# ============================================================
+# 2. VERIFY EMPTY
+# ============================================================
+
+verify_constraints_empty
+
+
+# ============================================================
+# 3. CREATE PER-CLUSTER CONSTRAINTS
+# ============================================================
+
+echo "------------------------------------------------------------"
+echo "3. CREATE PER-CLUSTER CONSTRAINTS"
+echo "------------------------------------------------------------"
+echo
+
+
+for i in $(seq "$START" "$END")
+do
+
+    CLNVRM=$(printf "%03d" "$i")
+
+    CLUSTER="${SITE_PREFIX}${CLNVRM}"
+
+    CORE="rg-clnvrm${CLNVRM}-core"
+
+    VIP="clnvrm${CLNVRM}-vip"
+
+
+    echo
+    echo "============================================================"
+    echo " $CLUSTER"
+    echo "============================================================"
+    echo
+    echo "CORE : $CORE"
+    echo "VIP  : $VIP"
+    echo
+
+
+    # ========================================================
+    # 3.1 ORDER CONSTRAINTS
+    #
+    # CORE must start before NFSREC01-04.
+    # ========================================================
+
+    echo "Creating ORDER constraints..."
+
+    for r in 01 02 03 04
+    do
+
+        NFSREC="clnvrm${CLNVRM}-nfsrec${r}"
+
+        echo "  $CORE -> $NFSREC"
+
+        pcs constraint order \
+            start "$CORE" then "$NFSREC"
+
+    done
+
+
+    echo
+
+
+    # ========================================================
+    # 3.2 NFSREC -> CORE COLOCATION
+    #
+    # NFSREC must run on the same node as CORE.
+    # ========================================================
+
+    echo "Creating NFSREC -> CORE colocations..."
+
+    for r in 01 02 03 04
+    do
+
+        NFSREC="clnvrm${CLNVRM}-nfsrec${r}"
+
+        echo "  $NFSREC -> $CORE"
+
+        pcs constraint colocation add \
+            "$NFSREC" \
+            with "$CORE" INFINITY
+
+    done
+
+
+    echo
+
+
+    # ========================================================
+    # 3.3 VIP -> CORE COLOCATION
+    #
+    # VIP must run on the same node as CORE.
+    #
+    # Direction:
+    #
+    #     VIP -> CORE
+    #
+    # This is intentional for your architecture.
+    # ========================================================
+
+    echo "Creating VIP -> CORE colocation..."
+
+    echo "  $VIP -> $CORE"
+
+    pcs constraint colocation add \
+        "$VIP" \
+        with "$CORE" INFINITY
+
+
+    echo
+
+done
+
+
+# ============================================================
+# 4. VIP ANTI-COLOCATION
+#
+# Every VIP must run on a different node.
+#
+# With 7 VIPs:
+#
+#     7 x 6 / 2 = 21
+#
+# anti-colocation constraints.
+# ============================================================
+
+echo "------------------------------------------------------------"
+echo "4. CREATE VIP ANTI-COLOCATION"
+echo "------------------------------------------------------------"
+echo
+
+
+for i in $(seq "$START" "$END")
+do
+
+    VIP1="clnvrm$(printf "%03d" "$i")-vip"
+
+
+    for j in $(seq $((i + 1)) "$END")
+    do
+
+        VIP2="clnvrm$(printf "%03d" "$j")-vip"
+
+
+        echo "  $VIP1 <-> $VIP2"
+
+
+        pcs constraint colocation add \
+            "$VIP1" \
+            with "$VIP2" \
+            -INFINITY
+
+    done
+
+done
+
+
+# ============================================================
+# 5. FINAL CONFIGURATION
+# ============================================================
+
+echo
+echo "============================================================"
+echo "5. FINAL PACEMAKER CONSTRAINT CONFIGURATION"
+echo "============================================================"
+echo
+
+
+pcs constraint config --full
+
+
+# ============================================================
+# 6. COUNT CONSTRAINTS
+# ============================================================
+
+echo
+echo "============================================================"
+echo "6. CONSTRAINT COUNT"
+echo "============================================================"
+
+
+TOTAL=$(
+    pcs constraint config --full 2>/dev/null |
+    sed -nE 's/.*\(id:[[:space:]]*([^)]*)\).*/\1/p' |
+    sort -u |
+    wc -l
+)
+
+
+EXPECTED_CLUSTERS=$(
+    echo "$END - $START + 1" |
+    bc
+)
+
+EXPECTED_ORDER=$(
+    echo "$EXPECTED_CLUSTERS * 4" |
+    bc
+)
+
+EXPECTED_NFSREC=$(
+    echo "$EXPECTED_CLUSTERS * 4" |
+    bc
+)
+
+EXPECTED_VIP=$EXPECTED_CLUSTERS
+
+EXPECTED_ANTI=$(
+    echo "$EXPECTED_CLUSTERS * ($EXPECTED_CLUSTERS - 1) / 2" |
+    bc
+)
+
+EXPECTED_TOTAL=$(
+    echo "$EXPECTED_ORDER + $EXPECTED_NFSREC + $EXPECTED_VIP + $EXPECTED_ANTI" |
+    bc
+)
+
+
+echo
+echo "Site                    : $SITE"
+echo "Cluster count           : $EXPECTED_CLUSTERS"
+echo
+echo "Expected order          : $EXPECTED_ORDER"
+echo "Expected NFSREC coloc   : $EXPECTED_NFSREC"
+echo "Expected VIP -> CORE    : $EXPECTED_VIP"
+echo "Expected VIP anti-col   : $EXPECTED_ANTI"
+echo "--------------------------------------"
+echo "Expected TOTAL          : $EXPECTED_TOTAL"
+echo "Actual TOTAL            : $TOTAL"
+echo
+
+
+# ============================================================
+# 7. RESULT
+# ============================================================
+
+if [ "$TOTAL" -eq "$EXPECTED_TOTAL" ]; then
+
+    echo "============================================================"
+    echo " SUCCESS"
+    echo "============================================================"
+    echo
+    echo "All $TOTAL constraints were created successfully."
+    echo
+    echo "Site: $SITE"
+    echo "Clusters:"
+    echo "  ${SITE_PREFIX}$(printf "%03d" "$START")"
+    echo "  ..."
+    echo "  ${SITE_PREFIX}$(printf "%03d" "$END")"
+    echo
+
+else
+
+    echo "============================================================"
+    echo " ERROR"
+    echo "============================================================"
+    echo
+    echo "Expected : $EXPECTED_TOTAL"
+    echo "Actual   : $TOTAL"
+    echo
+    echo "The constraint count does not match."
+    echo
+    exit 1
+
+fi
