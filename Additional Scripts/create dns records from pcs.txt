@@ -1,0 +1,37 @@
+#!/bin/bash
+
+OUTPUT="create_vip_dns_records.ps1"
+
+# DNS zone
+ZONE="mak.iss"
+
+# Clear/create output file
+> "$OUTPUT"
+
+echo "# Generated from Pacemaker VIP resources" >> "$OUTPUT"
+echo "# Date: $(date)" >> "$OUTPUT"
+echo "" >> "$OUTPUT"
+
+pcs resource config | awk '
+/Resource:.*IPaddr2/ {
+    resource=$2
+    sub(/\(.*/, "", resource)
+    sub(/-vip$/, "", resource)
+}
+
+/ip=/ {
+    if (resource != "") {
+        match($0, /ip=[^ ]+/)
+        ip=substr($0, RSTART+3, RLENGTH-3)
+
+        printf "Add-DnsServerResourceRecordA -ZoneName \"%s\" -Name \"%s\" -IPv4Address \"%s\"\n", \
+               "'"$ZONE"'", resource, ip
+
+        resource=""
+    }
+}
+' >> "$OUTPUT"
+
+echo "Generated: $OUTPUT"
+echo
+cat "$OUTPUT"

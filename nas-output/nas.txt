@@ -1,0 +1,23 @@
+ for i in {1..7}; do
+    chown recorder:recorder clnvrm00${i}/app
+    chown recorder:recorder clnvrm00${i}/data
+    chown recorder:recorder clnvrm00${i}/etc
+    chown root:wheel clnvrm00${i}/log
+done
+
+for i in {1..7}; do
+    chmod 755 clnvrm00${i}/app
+    chmod 700 clnvrm00${i}/data
+    chmod 755 clnvrm00${i}/etc
+    chmod 755 clnvrm00${i}/log
+done
+
+isi nfs exports modify 10 \
+    --zone=mtr-rec \
+    --root-clients 10.101.30.101 \
+    --add-root-clients 10.101.30.102 \
+    --add-root-clients 10.101.30.103 \
+    --add-root-clients 10.101.30.104 \
+    --add-root-clients 10.101.30.105 \
+    --add-root-clients 10.101.30.106 \
+    --add-root-clients 10.101.30.107

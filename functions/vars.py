@@ -42,8 +42,8 @@ INVALID_VALUES = {
 
 # Inclusive Excel row range shared by all scripts that process the resource list:
 # Foreman provisioning, rack-mount iLO, blade iLO, RAID, and future automation.
-START_ROW = 57
-END_ROW = 57
+START_ROW = 24
+END_ROW = 24
 
 # Overall Foreman/DNS orchestration worker pool.
 MAX_WORKERS = 8

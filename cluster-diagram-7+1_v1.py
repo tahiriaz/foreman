@@ -25,7 +25,7 @@ except ImportError:
 # CONFIGURATION
 # ============================================================
 
-CLUSTER_IP = "10.101.28.27"
+CLUSTER_IP = "10.101.28.11"
 
 ssh_user = "root"
 
