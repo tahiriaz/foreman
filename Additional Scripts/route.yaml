@@ -1,0 +1,70 @@
+
+---
+route_table:
+  -middleend:
+     id: 200
+     iface: "vlan128"
+     type: "vlan"
+     table: "middleend"
+     route:
+      - ip: "10.101.28.0/23"
+        table: 200
+      - ip: "0.0.0.0/0"
+        next_hop: 10.101.28.1
+        table: 200
+      - ip: "10.101.18.0/23"
+        next_hop: 10.101.28.1
+        table: 200
+      - ip: "10.130.42.0/23"
+        next_hop: 10.101.28.1
+        table: 200
+     rules:
+      - 'priority 200 from {{ ansible_vlan128.ipv4.address }} lookup 200'
+      - 'priority 501 to 10.130.2.0/23 lookup 200'
+      - 'priority 502 to 10.130.4.0/23 lookup 200'
+      - 'priority 503 to 10.130.6.0/23 lookup 200'
+      - 'priority 504 to 10.130.8.0/23 lookup 200'
+      - 'priority 505 to 10.130.12.0/23 lookup 200'
+      - 'priority 506 to 10.130.26.0/23 lookup 200'
+      - 'priority 507 to 10.101.18.0/23 lookup 200'
+      - 'priority 508 to 10.130.42.0/23 lookup 200'
+     create: True
+
+  -frontend:
+     id: 100
+     iface: "vlan126"
+     type: "vlan"
+     table: "frontend"
+     route:
+      - ip: "10.101.26.0/23"
+        table: 100
+      - ip: "0.0.0.0/0"
+        next_hop: 10.101.26.1
+        table: 100
+     rules:
+      - 'priority 100 from {{ ansible_vlan126.ipv4.address }} lookup 100'
+      - 'priority 9999 to 0.0.0.0/0 lookup 100'
+     create: True
+
+  -backend:
+     id: 300
+     iface: "bond2"
+     type: "bond"
+     table: "backend"
+     route:
+      - ip: "10.101.30.0/23"
+        table: 300
+      - ip: "0.0.0.0/0"
+        next_hop: 10.101.30.1
+        table: 300
+     rules:
+      - 'priority 300 from {{ ansible_bond2.ipv4.address }} lookup 300'
+      - 'priority 601 to 10.101.0.0/23 lookup 300'
+      - 'priority 602 to 10.101.2.0/23 lookup 300'
+      - 'priority 603 to 10.101.4.0/23 lookup 300'
+      - 'priority 604 to 10.101.6.0/23 lookup 300'
+      - 'priority 605 to 10.120.0.0/23 lookup 300'
+      - 'priority 606 to 10.102.2.0/23 lookup 300'
+      - 'priority 607 to 10.102.4.0/23 lookup 300'
+      - 'priority 608 to 10.102.6.0/23 lookup 300'
+     create: True

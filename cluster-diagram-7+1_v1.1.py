@@ -87,6 +87,11 @@ NODE_RESOURCE_HEIGHT = 34
 
 NODE_RESOURCE_GAP = 5
 
+# Space reserved immediately above each resource group for its label.
+# Keeping this outside the group boundary prevents the label from
+# obscuring either the preceding resource or a group member.
+GROUP_LABEL_HEIGHT = 28
+
 PANEL_GAP = 12
 
 PANEL_HEADER_HEIGHT = 38
@@ -1184,7 +1189,7 @@ for raw_line in pcs_status.splitlines():
 
     match = re.search(
 
-        r"'([^']*)'\s***\(**([-0-9]+)**\)**",
+        r"'([^']*)'\s+\((-?\d+)\)",
 
         action_text
 
@@ -1322,13 +1327,15 @@ constraint_counts = {
 
     "anti_colocation": 0,
 
-    "core_anti_colocation": 0,
-
     "vip_anti_colocation": 0,
 
-    "nfsrec_core_colocation": 0,
+    "vip_workload_colocation": 0,
 
-    "vip_core_colocation": 0
+    "core_to_nfsrec_order": 0,
+
+    "nfsrec_to_picata_order": 0,
+
+    "etc_to_updater_order": 0
 
 }
 
@@ -1353,6 +1360,49 @@ if constraints_section is not None:
         if tag == "rsc_order":
 
             constraint_counts["order"] += 1
+
+            first = constraint.get("first", "").lower()
+
+            then = constraint.get("then", "").lower()
+
+            if (
+                first.startswith("rg-clnvrm")
+
+                and first.endswith("-core")
+
+                and then.startswith("clnvrm")
+
+                and "-nfsrec" in then
+
+            ):
+
+                constraint_counts["core_to_nfsrec_order"] += 1
+
+            elif (
+                first.startswith("clnvrm")
+
+                and "-nfsrec" in first
+
+                and then.startswith("clnvrm")
+
+                and "-picata" in then
+
+            ):
+
+                constraint_counts["nfsrec_to_picata_order"] += 1
+
+            elif (
+                first.startswith("clnvrm")
+
+                and first.endswith("-nfsetc01")
+
+                and then.startswith("clnvrm")
+
+                and then.endswith("-pctcfg-updater")
+
+            ):
+
+                constraint_counts["etc_to_updater_order"] += 1
 
         elif tag == "rsc_colocation":
 
@@ -1382,33 +1432,7 @@ if constraints_section is not None:
 
                 constraint_counts["anti_colocation"] += 1
 
-                # The CIB represents anti-colocation as an
-
-                # rsc_colocation with score=-INFINITY.
-
-                # Separate CORE and VIP anti-colocation so
-
-                # validation can verify the complete model.
-
                 if (
-
-                    rsc.startswith("rg-clnvrm")
-
-                    and rsc.endswith("-core")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ):
-
-                    constraint_counts[
-
-                        "core_anti_colocation"
-
-                    ] += 1
-
-                elif (
 
                     rsc.startswith("clnvrm")
 
@@ -1428,71 +1452,19 @@ if constraints_section is not None:
 
             else:
 
-                # Positive colocation constraints.
-
                 if (
 
-                    rsc.startswith("clnvrm")
+                    rsc.startswith(("clnvrm", "rg-clnvrm"))
 
-                    and rsc.endswith("-nfsrec01")
+                    and with_rsc.startswith("clnvrm")
 
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ) or (
-
-                    rsc.startswith("clnvrm")
-
-                    and rsc.endswith("-nfsrec02")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ) or (
-
-                    rsc.startswith("clnvrm")
-
-                    and rsc.endswith("-nfsrec03")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ) or (
-
-                    rsc.startswith("clnvrm")
-
-                    and rsc.endswith("-nfsrec04")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
+                    and with_rsc.endswith("-vip")
 
                 ):
 
                     constraint_counts[
 
-                        "nfsrec_core_colocation"
-
-                    ] += 1
-
-                elif (
-
-                    rsc.startswith("clnvrm")
-
-                    and rsc.endswith("-vip")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ):
-
-                    constraint_counts[
-
-                        "vip_core_colocation"
+                        "vip_workload_colocation"
 
                     ] += 1
 
@@ -1822,6 +1794,16 @@ def node_height(node):
 
     )
 
+    group_count = len({
+
+        resource_to_group[resource_id]
+
+        for resource_id in node["resources"]
+
+        if resource_id in resource_to_group
+
+    })
+
     return (
 
         NODE_HEADER_HEIGHT
@@ -1837,6 +1819,8 @@ def node_height(node):
             + NODE_RESOURCE_GAP
 
         )
+
+        + group_count * GROUP_LABEL_HEIGHT
 
         + 20
 
@@ -2460,12 +2444,16 @@ for node_name in node_names:
             return (11, rid)
         if rid.endswith("-nfsdat01"):
             return (12, rid)
+        if rid.endswith("-nfsetc01"):
+            return (13, rid)
 
         match = re.search(r"-nfsrec(\d+)$", rid)
         if match:
             return (20, int(match.group(1)))
 
         return (50, rid)
+
+    drawn_groups = set()
 
     for resource_id in sorted(
         node["resources"],
@@ -2481,6 +2469,14 @@ for node_name in node_names:
         if resource is None:
 
             continue
+
+        group_id = resource_to_group.get(resource_id)
+
+        if group_id and group_id not in drawn_groups:
+
+            resource_y += GROUP_LABEL_HEIGHT
+
+            drawn_groups.add(group_id)
 
         # State priority:
 
@@ -2675,15 +2671,15 @@ for node_name in node_names:
 node_bottom = TOP_MARGIN + max_node_height
 # Visualizes the validated model:
 #
-#   VIP -> CORE                 colocation INFINITY
+#   VIP <-> workload resources  colocation INFINITY
 #   CORE -> NFSREC01-04         mandatory start order
-#   NFSREC01-04 -> CORE         colocation INFINITY
-#   CORE <-> CORE               anti-colocation -INFINITY
+#   NFSREC01-04 -> PICATA01-04  mandatory start order
+#   NFSETC01 -> updater          mandatory start order
 #   VIP <-> VIP                 anti-colocation -INFINITY
 #
-# Anti-colocation constraints are validated from the CIB and shown
-# numerically in the dashboard panels, but are intentionally not
-# drawn as red arrows to keep the resource map readable.
+# The 21 pairwise VIP anti-colocation constraints are summarized in
+# the dashboard rather than drawn between nodes; drawing them would
+# obscure the resources without adding useful information.
 
 def draw_arrowhead(draw_obj, x, y, angle, color, size=8):
     import math
@@ -2742,7 +2738,9 @@ for group_id, group in groups.items():
         continue
 
     x1 = min(b["x1"] for b in member_boxes) - 7
-    y1 = min(b["y1"] for b in member_boxes) - 29
+    # The boundary encloses only the group's actual members.  The
+    # label is drawn in the dedicated whitespace above this boundary.
+    y1 = min(b["y1"] for b in member_boxes) - 7
     x2 = max(b["x2"] for b in member_boxes) + 7
     y2 = max(b["y2"] for b in member_boxes) + 7
 
@@ -2767,7 +2765,7 @@ for group_id, group in groups.items():
         draw, label, PANEL_TEXT_BOLD
     )
     label_x = (x1 + x2 - label_w) / 2
-    label_y = y1 - 1
+    label_y = y1 - label_h - 3
 
     draw.rectangle(
         (
@@ -2787,7 +2785,7 @@ for group_id, group in groups.items():
 
 
 # ------------------------------------------------------------
-# VIP -> CORE colocation
+# VIP <-> workload colocation
 # ------------------------------------------------------------
 vip_ids = sorted(
     rid for rid in resources
@@ -2806,25 +2804,27 @@ for vip_id in vip_ids:
 
     y1 = vb["y2"] + 2
     y2 = gb["y1"] - 2
+    # Keep the colocation connector clear of the centered group label.
+    connector_x = gb["x2"] - 14
 
-    if y2 > y1:
+    if y2 > y1 and constraint_counts["vip_workload_colocation"]:
         draw.line(
-            (vb["cx"], y1, gb["cx"], y2),
+            (connector_x, y1, connector_x, y2),
             fill=CONSTRAINT_GREEN,
             width=CONSTRAINT_ARROW_WIDTH
         )
         draw_arrowhead(
-            draw, gb["cx"], y2, 1.5708,
+            draw, connector_x, y2, 1.5708,
             CONSTRAINT_GREEN
         )
         draw_arrowhead(
-            draw, vb["cx"], y1, -1.5708,
+            draw, connector_x, y1, -1.5708,
             CONSTRAINT_GREEN
         )
 
 
 # ------------------------------------------------------------
-# CORE -> NFSREC order and NFSREC -> CORE colocation
+# CORE -> NFSREC mandatory start order
 # ------------------------------------------------------------
 for group_id, gb in group_boxes.items():
     instance = group_id.replace("rg-", "").replace("-core", "")
@@ -2849,7 +2849,7 @@ for group_id, gb in group_boxes.items():
     end_y = first_y - 2
 
     # Mandatory start order: CORE must start before each NFSREC.
-    if end_y > start_y:
+    if end_y > start_y and constraint_counts["core_to_nfsrec_order"]:
         draw.line(
             (gb["cx"], start_y, gb["cx"], end_y),
             fill=CONSTRAINT_BLUE,
@@ -2859,48 +2859,15 @@ for group_id, gb in group_boxes.items():
             draw, gb["cx"], end_y, 1.5708,
             CONSTRAINT_BLUE
         )
-        draw.text(
-            (gb["x2"] + 8, (start_y + end_y) / 2 - 8),
-            "ORDER ×4",
-            font=SMALL_BOLD,
-            fill=CONSTRAINT_BLUE
-        )
-
-    # Four NFSREC -> CORE colocations represented by a bracket.
-    bracket_x = gb["x1"] - 7
-    if bracket_x > SIDE_MARGIN:
-        draw.line(
-            (bracket_x, first_y, bracket_x, last_y),
-            fill=CONSTRAINT_GREEN,
-            width=2
-        )
-
-        for box in rec_boxes:
-            draw.line(
-                (box["x1"] - 2, box["cy"], bracket_x, box["cy"]),
-                fill=CONSTRAINT_GREEN,
-                width=2
-            )
-
-        return_y = (first_y + last_y) / 2
-        draw.line(
-            (bracket_x, return_y, gb["x1"], return_y),
-            fill=CONSTRAINT_GREEN,
-            width=2
-        )
-        draw_arrowhead(
-            draw, gb["x1"], return_y, 0,
-            CONSTRAINT_GREEN
-        )
-
 
 # ------------------------------------------------------------
 # Constraint legend
 # ------------------------------------------------------------
 constraint_legend_y = node_bottom - 27
 legend_items = [
-    (CONSTRAINT_GREEN, "Colocation  INFINITY", False),
-    (CONSTRAINT_BLUE, "Order  CORE → NFSREC", False)
+    (CONSTRAINT_GREEN, "VIP ↔ workload colocated ×10 / instance", False),
+    (CONSTRAINT_BLUE, "Order: CORE → NFSREC ×4", False),
+    (CONSTRAINT_BLUE, "NFSREC → PICATA ×4; NFSETC → updater", False)
 ]
 
 legend_x = SIDE_MARGIN + 8
@@ -3422,11 +3389,11 @@ summary_lines = [
 
     (
 
-        "CORE anti-colocation",
+        "VIP workload colocation",
 
         str(
 
-            constraint_counts["core_anti_colocation"]
+            constraint_counts["vip_workload_colocation"]
 
         )
 
@@ -3876,25 +3843,33 @@ constraint_lines = [
 
     (
 
-        "Colocation",
+        "CORE → NFSREC",
 
-        constraint_counts["colocation"]
-
-    ),
-
-    (
-
-        "Anti-colocation",
-
-        constraint_counts["anti_colocation"]
+        constraint_counts["core_to_nfsrec_order"]
 
     ),
 
     (
 
-        "CORE anti-colocation",
+        "NFSREC → PICATA",
 
-        constraint_counts["core_anti_colocation"]
+        constraint_counts["nfsrec_to_picata_order"]
+
+    ),
+
+    (
+
+        "NFSETC → updater",
+
+        constraint_counts["etc_to_updater_order"]
+
+    ),
+
+    (
+
+        "VIP workload coloc.",
+
+        constraint_counts["vip_workload_colocation"]
 
     ),
 
@@ -3903,14 +3878,6 @@ constraint_lines = [
         "VIP anti-colocation",
 
         constraint_counts["vip_anti_colocation"]
-
-    ),
-
-    (
-
-        "Location",
-
-        constraint_counts["location"]
 
     )
 
@@ -4551,18 +4518,18 @@ health_checks = [
     (
 
         (
-            constraint_counts["core_anti_colocation"] > 0
+            constraint_counts["vip_workload_colocation"] > 0
             and constraint_counts["vip_anti_colocation"] > 0
         ),
 
-        "CORE + VIP anti-colocation configured"
+        "VIP workload and anti-colocation configured"
 
         if (
-            constraint_counts["core_anti_colocation"] > 0
+            constraint_counts["vip_workload_colocation"] > 0
             and constraint_counts["vip_anti_colocation"] > 0
         )
 
-        else "CORE/VIP anti-colocation missing"
+        else "VIP colocation constraints missing"
 
     )
 
@@ -5056,9 +5023,33 @@ print(
 
 print(
 
-    "    CORE anti-coloc  : "
+    "    VIP workload     : "
 
-    + str(constraint_counts["core_anti_colocation"])
+    + str(constraint_counts["vip_workload_colocation"])
+
+)
+
+print(
+
+    "    CORE -> NFSREC   : "
+
+    + str(constraint_counts["core_to_nfsrec_order"])
+
+)
+
+print(
+
+    "    NFSREC -> PICATA : "
+
+    + str(constraint_counts["nfsrec_to_picata_order"])
+
+)
+
+print(
+
+    "    NFSETC -> updater: "
+
+    + str(constraint_counts["etc_to_updater_order"])
 
 )
 

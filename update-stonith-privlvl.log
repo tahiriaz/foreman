@@ -1,0 +1,289 @@
+2026-09-22 13:36:16,197 INFO: 
+2026-09-22 13:36:16,199 INFO: ======================================================================
+2026-09-22 13:36:16,199 INFO: STONITH privilege-level update
+2026-09-22 13:36:16,200 INFO: ======================================================================
+2026-09-22 13:36:16,200 INFO: Cluster node : clnvrm001.mak.iss
+2026-09-22 13:36:16,201 INFO: SSH user     : root
+2026-09-22 13:36:16,202 INFO: Target agent : fence_ilo4
+2026-09-22 13:36:16,202 INFO: Target level : operator
+2026-09-22 13:36:16,202 INFO: SSH port     : 22
+2026-09-22 13:36:16,203 INFO: Workers      : 5
+2026-09-22 13:36:16,204 INFO: Sudo         : NO
+2026-09-22 13:36:16,205 INFO: ======================================================================
+2026-09-22 13:36:16,206 INFO: Connecting to clnvrm001.mak.iss:22...
+2026-09-22 13:36:16,254 INFO: Resolved clnvrm001.mak.iss -> 10.101.27.11
+2026-09-22 13:36:16,408 INFO: SSH connection established.
+2026-09-22 13:36:16,409 INFO: Checking Pacemaker cluster...
+2026-09-22 13:36:18,686 INFO: Pacemaker cluster is accessible.
+2026-09-22 13:36:18,687 INFO: 
+2026-09-22 13:36:18,687 INFO: Getting STONITH resources...
+2026-09-22 13:36:20,453 INFO: 
+2026-09-22 13:36:20,453 INFO: Found 7 STONITH resource(s):
+2026-09-22 13:36:20,454 INFO:   fence_tvsnvrapp001mp
+2026-09-22 13:36:20,454 INFO:   fence_tvsnvrapp002mp
+2026-09-22 13:36:20,454 INFO:   fence_tvsnvrapp003mp
+2026-09-22 13:36:20,455 INFO:   fence_tvsnvrapp004mp
+2026-09-22 13:36:20,455 INFO:   fence_tvsnvrapp005mp
+2026-09-22 13:36:20,456 INFO:   fence_tvsnvrapp006mp
+2026-09-22 13:36:20,456 INFO:   fence_tvsnvrapp008mp
+2026-09-22 13:36:20,457 INFO: 
+2026-09-22 13:36:20,457 INFO: Inspecting 7 STONITH resources using 5 threads...
+2026-09-22 13:36:20,458 INFO: [THREAD] Inspecting fence_tvsnvrapp001mp...
+2026-09-22 13:36:20,458 INFO: Connecting to clnvrm001.mak.iss:22...
+2026-09-22 13:36:20,459 INFO: [THREAD] Inspecting fence_tvsnvrapp002mp...
+2026-09-22 13:36:20,459 INFO: Connecting to clnvrm001.mak.iss:22...
+2026-09-22 13:36:20,459 INFO: [THREAD] Inspecting fence_tvsnvrapp003mp...
+2026-09-22 13:36:20,460 INFO: Resolved clnvrm001.mak.iss -> 10.101.27.11
+2026-09-22 13:36:20,460 INFO: [THREAD] Inspecting fence_tvsnvrapp004mp...
+2026-09-22 13:36:20,461 INFO: Connecting to clnvrm001.mak.iss:22...
+2026-09-22 13:36:20,461 INFO: [THREAD] Inspecting fence_tvsnvrapp005mp...
+2026-09-22 13:36:20,462 INFO: Resolved clnvrm001.mak.iss -> 10.101.27.11
+2026-09-22 13:36:20,463 INFO: Connecting to clnvrm001.mak.iss:22...
+2026-09-22 13:36:20,464 INFO: Connecting to clnvrm001.mak.iss:22...
+2026-09-22 13:36:20,465 INFO: Resolved clnvrm001.mak.iss -> 10.101.27.11
+2026-09-22 13:36:20,467 INFO: Resolved clnvrm001.mak.iss -> 10.101.27.11
+2026-09-22 13:36:20,469 INFO: Resolved clnvrm001.mak.iss -> 10.101.27.11
+2026-09-22 13:36:20,604 INFO: SSH connection established.
+2026-09-22 13:36:20,610 INFO: SSH connection established.
+2026-09-22 13:36:20,611 INFO: SSH connection established.
+2026-09-22 13:36:20,615 INFO: SSH connection established.
+2026-09-22 13:36:20,619 INFO: SSH connection established.
+2026-09-22 13:36:22,610 INFO: [THREAD] fence_tvsnvrapp001mp -> type=fence_ilo4 privlvl=operator
+2026-09-22 13:36:22,612 INFO: [THREAD] Inspecting fence_tvsnvrapp006mp...
+2026-09-22 13:36:22,612 INFO: Connecting to clnvrm001.mak.iss:22...
+2026-09-22 13:36:22,613 INFO: Resolved clnvrm001.mak.iss -> 10.101.27.11
+2026-09-22 13:36:22,716 INFO: [THREAD] fence_tvsnvrapp005mp -> type=fence_ilo4 privlvl=operator
+2026-09-22 13:36:22,717 INFO: [THREAD] Inspecting fence_tvsnvrapp008mp...
+2026-09-22 13:36:22,717 INFO: Connecting to clnvrm001.mak.iss:22...
+2026-09-22 13:36:22,718 INFO: Resolved clnvrm001.mak.iss -> 10.101.27.11
+2026-09-22 13:36:22,727 INFO: SSH connection established.
+2026-09-22 13:36:22,808 INFO: [THREAD] fence_tvsnvrapp004mp -> type=fence_ilo4 privlvl=operator
+2026-09-22 13:36:22,827 INFO: SSH connection established.
+2026-09-22 13:36:22,999 INFO: [THREAD] fence_tvsnvrapp003mp -> type=fence_ilo4 privlvl=operator
+2026-09-22 13:36:23,121 INFO: [THREAD] fence_tvsnvrapp002mp -> type=fence_ilo4 privlvl=operator
+2026-09-22 13:36:24,693 INFO: [THREAD] fence_tvsnvrapp008mp -> type=fence_ilo4 privlvl=operator
+2026-09-22 13:36:24,817 INFO: [THREAD] fence_tvsnvrapp006mp -> type=fence_ilo4 privlvl=operator
+2026-09-22 13:36:24,820 INFO: 
+2026-09-22 13:36:24,821 INFO: ======================================================================
+2026-09-22 13:36:24,821 INFO: CIB UPDATE PHASE
+2026-09-22 13:36:24,821 INFO: ======================================================================
+2026-09-22 13:36:24,822 INFO: No fence_ilo4 resources require modification.
+2026-09-22 13:36:24,823 INFO: 
+2026-09-22 13:36:24,823 INFO: ======================================================================
+2026-09-22 13:36:24,823 INFO: SUMMARY
+2026-09-22 13:36:24,824 INFO: ======================================================================
+2026-09-22 13:36:24,824 INFO: STONITH resources found : 7
+2026-09-22 13:36:24,825 INFO: Already correct         : 7
+2026-09-22 13:36:24,825 INFO: Updated                 : 0
+2026-09-22 13:36:24,826 INFO: Verified                : 0
+2026-09-22 13:36:24,826 INFO: Non-fence_ilo4 skipped  : 0
+2026-09-22 13:36:24,826 INFO: Inspection failed      : 0
+2026-09-22 13:36:24,827 INFO: Verification failed    : 0
+2026-09-22 13:36:24,827 INFO: 
+2026-09-22 13:36:24,828 INFO: ALREADY CORRECT:
+2026-09-22 13:36:24,828 INFO:   fence_tvsnvrapp001mp
+2026-09-22 13:36:24,829 INFO:   fence_tvsnvrapp002mp
+2026-09-22 13:36:24,829 INFO:   fence_tvsnvrapp003mp
+2026-09-22 13:36:24,830 INFO:   fence_tvsnvrapp004mp
+2026-09-22 13:36:24,830 INFO:   fence_tvsnvrapp005mp
+2026-09-22 13:36:24,831 INFO:   fence_tvsnvrapp006mp
+2026-09-22 13:36:24,831 INFO:   fence_tvsnvrapp008mp
+2026-09-22 13:36:24,832 INFO: ======================================================================
+2026-09-22 13:36:24,832 INFO: SSH connection closed.
+2026-09-22 14:06:36,313 INFO: 
+2026-09-22 14:06:36,314 INFO: ======================================================================
+2026-09-22 14:06:36,315 INFO: STONITH privilege-level update
+2026-09-22 14:06:36,316 INFO: ======================================================================
+2026-09-22 14:06:36,316 INFO: Cluster node : 10.101.28.19
+2026-09-22 14:06:36,317 INFO: SSH user     : root
+2026-09-22 14:06:36,318 INFO: Target agent : fence_ilo4
+2026-09-22 14:06:36,319 INFO: Target level : operator
+2026-09-22 14:06:36,320 INFO: SSH port     : 22
+2026-09-22 14:06:36,321 INFO: Workers      : 5
+2026-09-22 14:06:36,322 INFO: Sudo         : NO
+2026-09-22 14:06:36,323 INFO: ======================================================================
+2026-09-22 14:06:36,324 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:36,333 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:36,456 INFO: SSH connection established.
+2026-09-22 14:06:36,457 INFO: Checking Pacemaker cluster...
+2026-09-22 14:06:38,382 INFO: Pacemaker cluster is accessible.
+2026-09-22 14:06:38,384 INFO: 
+2026-09-22 14:06:38,384 INFO: Getting STONITH resources...
+2026-09-22 14:06:39,919 INFO: 
+2026-09-22 14:06:39,920 INFO: Found 7 STONITH resource(s):
+2026-09-22 14:06:39,921 INFO:   fence_tvsnvrapp009mp
+2026-09-22 14:06:39,922 INFO:   fence_tvsnvrapp010mp
+2026-09-22 14:06:39,923 INFO:   fence_tvsnvrapp011mp
+2026-09-22 14:06:39,924 INFO:   fence_tvsnvrapp012mp
+2026-09-22 14:06:39,925 INFO:   fence_tvsnvrapp013mp
+2026-09-22 14:06:39,926 INFO:   fence_tvsnvrapp015mp
+2026-09-22 14:06:39,927 INFO:   fence_tvsnvrapp016mp
+2026-09-22 14:06:39,928 INFO: 
+2026-09-22 14:06:39,929 INFO: Inspecting 7 STONITH resources using 5 threads...
+2026-09-22 14:06:39,931 INFO: [THREAD] Inspecting fence_tvsnvrapp009mp...
+2026-09-22 14:06:39,932 INFO: [THREAD] Inspecting fence_tvsnvrapp010mp...
+2026-09-22 14:06:39,933 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:39,933 INFO: [THREAD] Inspecting fence_tvsnvrapp011mp...
+2026-09-22 14:06:39,934 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:39,934 INFO: [THREAD] Inspecting fence_tvsnvrapp012mp...
+2026-09-22 14:06:39,935 INFO: [THREAD] Inspecting fence_tvsnvrapp013mp...
+2026-09-22 14:06:39,937 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:39,937 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:39,938 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:39,939 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:39,940 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:39,942 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:39,943 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:39,945 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:40,063 INFO: SSH connection established.
+2026-09-22 14:06:40,065 INFO: SSH connection established.
+2026-09-22 14:06:40,067 INFO: SSH connection established.
+2026-09-22 14:06:40,070 INFO: SSH connection established.
+2026-09-22 14:06:40,071 INFO: SSH connection established.
+2026-09-22 14:06:41,617 INFO: [THREAD] fence_tvsnvrapp009mp -> type=fence_ilo4 privlvl=user
+2026-09-22 14:06:41,618 INFO: [THREAD] Inspecting fence_tvsnvrapp015mp...
+2026-09-22 14:06:41,619 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:41,619 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:41,707 INFO: [THREAD] fence_tvsnvrapp013mp -> type=fence_ilo4 privlvl=user
+2026-09-22 14:06:41,708 INFO: [THREAD] Inspecting fence_tvsnvrapp016mp...
+2026-09-22 14:06:41,709 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:41,709 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:41,737 INFO: SSH connection established.
+2026-09-22 14:06:41,745 INFO: [THREAD] fence_tvsnvrapp012mp -> type=fence_ilo4 privlvl=user
+2026-09-22 14:06:41,804 INFO: [THREAD] fence_tvsnvrapp010mp -> type=fence_ilo4 privlvl=user
+2026-09-22 14:06:41,838 INFO: SSH connection established.
+2026-09-22 14:06:41,945 INFO: [THREAD] fence_tvsnvrapp011mp -> type=fence_ilo4 privlvl=user
+2026-09-22 14:06:43,294 INFO: [THREAD] fence_tvsnvrapp016mp -> type=fence_ilo4 privlvl=operator
+2026-09-22 14:06:43,418 INFO: [THREAD] fence_tvsnvrapp015mp -> type=fence_ilo4 privlvl=user
+2026-09-22 14:06:43,422 INFO: 
+2026-09-22 14:06:43,422 INFO: ======================================================================
+2026-09-22 14:06:43,423 INFO: CIB UPDATE PHASE
+2026-09-22 14:06:43,423 INFO: ======================================================================
+2026-09-22 14:06:43,423 INFO: Resources requiring update: 6
+2026-09-22 14:06:43,424 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:06:43,424 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:06:43,562 INFO: SSH connection established.
+2026-09-22 14:06:43,562 INFO: 
+2026-09-22 14:06:43,562 INFO: Updating fence_tvsnvrapp009mp
+2026-09-22 14:06:43,562 INFO:     privlvl -> operator
+2026-09-22 14:06:45,670 INFO: SUCCESS: fence_tvsnvrapp009mp updated.
+2026-09-22 14:06:45,671 INFO: 
+2026-09-22 14:06:45,672 INFO: Updating fence_tvsnvrapp010mp
+2026-09-22 14:06:45,672 INFO:     privlvl -> operator
+2026-09-22 14:06:47,909 INFO: SUCCESS: fence_tvsnvrapp010mp updated.
+2026-09-22 14:06:47,910 INFO: 
+2026-09-22 14:06:47,910 INFO: Updating fence_tvsnvrapp011mp
+2026-09-22 14:06:47,910 INFO:     privlvl -> operator
+2026-09-22 14:06:50,962 INFO: SUCCESS: fence_tvsnvrapp011mp updated.
+2026-09-22 14:06:50,963 INFO: 
+2026-09-22 14:06:50,963 INFO: Updating fence_tvsnvrapp012mp
+2026-09-22 14:06:50,964 INFO:     privlvl -> operator
+2026-09-22 14:06:54,843 INFO: SUCCESS: fence_tvsnvrapp012mp updated.
+2026-09-22 14:06:54,843 INFO: 
+2026-09-22 14:06:54,844 INFO: Updating fence_tvsnvrapp013mp
+2026-09-22 14:06:54,844 INFO:     privlvl -> operator
+2026-09-22 14:06:57,080 INFO: SUCCESS: fence_tvsnvrapp013mp updated.
+2026-09-22 14:06:57,081 INFO: 
+2026-09-22 14:06:57,081 INFO: Updating fence_tvsnvrapp015mp
+2026-09-22 14:06:57,081 INFO:     privlvl -> operator
+2026-09-22 14:07:00,806 INFO: SUCCESS: fence_tvsnvrapp015mp updated.
+2026-09-22 14:07:00,808 INFO: 
+2026-09-22 14:07:00,808 INFO: Verifying 6 resource(s) using 5 threads...
+2026-09-22 14:07:00,809 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:07:00,812 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:07:00,812 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:07:00,812 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:07:00,812 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:07:00,814 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:07:00,816 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:07:00,816 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:07:00,817 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:07:00,820 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:07:00,936 INFO: SSH connection established.
+2026-09-22 14:07:00,938 INFO: SSH connection established.
+2026-09-22 14:07:00,947 INFO: SSH connection established.
+2026-09-22 14:07:00,947 INFO: SSH connection established.
+2026-09-22 14:07:00,949 INFO: SSH connection established.
+2026-09-22 14:07:03,094 INFO: [THREAD] VERIFIED: fence_tvsnvrapp009mp privlvl=operator
+2026-09-22 14:07:03,096 INFO: Connecting to 10.101.28.19:22...
+2026-09-22 14:07:03,096 INFO: Resolved 10.101.28.19 -> 10.101.28.19
+2026-09-22 14:07:03,154 INFO: [THREAD] VERIFIED: fence_tvsnvrapp013mp privlvl=operator
+2026-09-22 14:07:03,214 INFO: SSH connection established.
+2026-09-22 14:07:03,824 INFO: [THREAD] VERIFIED: fence_tvsnvrapp012mp privlvl=operator
+2026-09-22 14:07:03,863 INFO: [THREAD] VERIFIED: fence_tvsnvrapp011mp privlvl=operator
+2026-09-22 14:07:03,931 INFO: [THREAD] VERIFIED: fence_tvsnvrapp010mp privlvl=operator
+2026-09-22 14:07:04,718 INFO: [THREAD] VERIFIED: fence_tvsnvrapp015mp privlvl=operator
+2026-09-22 14:07:04,720 INFO: 
+2026-09-22 14:07:04,721 INFO: ======================================================================
+2026-09-22 14:07:04,721 INFO: SUMMARY
+2026-09-22 14:07:04,721 INFO: ======================================================================
+2026-09-22 14:07:04,722 INFO: STONITH resources found : 7
+2026-09-22 14:07:04,722 INFO: Already correct         : 1
+2026-09-22 14:07:04,723 INFO: Updated                 : 6
+2026-09-22 14:07:04,723 INFO: Verified                : 6
+2026-09-22 14:07:04,725 INFO: Non-fence_ilo4 skipped  : 0
+2026-09-22 14:07:04,725 INFO: Inspection failed      : 0
+2026-09-22 14:07:04,725 INFO: Verification failed    : 0
+2026-09-22 14:07:04,726 INFO: 
+2026-09-22 14:07:04,726 INFO: ALREADY CORRECT:
+2026-09-22 14:07:04,726 INFO:   fence_tvsnvrapp016mp
+2026-09-22 14:07:04,727 INFO: 
+2026-09-22 14:07:04,727 INFO: UPDATED:
+2026-09-22 14:07:04,728 INFO:   fence_tvsnvrapp009mp
+2026-09-22 14:07:04,728 INFO:   fence_tvsnvrapp010mp
+2026-09-22 14:07:04,728 INFO:   fence_tvsnvrapp011mp
+2026-09-22 14:07:04,728 INFO:   fence_tvsnvrapp012mp
+2026-09-22 14:07:04,729 INFO:   fence_tvsnvrapp013mp
+2026-09-22 14:07:04,729 INFO:   fence_tvsnvrapp015mp
+2026-09-22 14:07:04,730 INFO: 
+2026-09-22 14:07:04,730 INFO: VERIFIED:
+2026-09-22 14:07:04,731 INFO:   fence_tvsnvrapp009mp
+2026-09-22 14:07:04,731 INFO:   fence_tvsnvrapp010mp
+2026-09-22 14:07:04,731 INFO:   fence_tvsnvrapp011mp
+2026-09-22 14:07:04,732 INFO:   fence_tvsnvrapp012mp
+2026-09-22 14:07:04,732 INFO:   fence_tvsnvrapp013mp
+2026-09-22 14:07:04,733 INFO:   fence_tvsnvrapp015mp
+2026-09-22 14:07:04,733 INFO: ======================================================================
+2026-09-22 14:07:04,734 INFO: SSH connection closed.
+2026-09-24 13:49:05,223 INFO: 
+2026-09-24 13:49:05,229 INFO: ======================================================================
+2026-09-24 13:49:05,230 INFO: STONITH privilege-level update
+2026-09-24 13:49:05,231 INFO: ======================================================================
+2026-09-24 13:49:05,232 INFO: Cluster node : 10.101.28.60
+2026-09-24 13:49:05,233 INFO: SSH user     : root
+2026-09-24 13:49:05,233 INFO: Target agent : fence_ilo4
+2026-09-24 13:49:05,234 INFO: Target level : operator
+2026-09-24 13:49:05,235 INFO: SSH port     : 22
+2026-09-24 13:49:05,237 INFO: Workers      : 5
+2026-09-24 13:49:05,237 INFO: Sudo         : NO
+2026-09-24 13:49:05,239 INFO: ======================================================================
+2026-09-24 13:49:05,239 INFO: Connecting to 10.101.28.60:22...
+2026-09-24 13:49:05,281 INFO: Resolved 10.101.28.60 -> 10.101.28.60
+2026-09-24 13:49:25,273 WARNING: Interrupted by user.
+2026-09-24 13:49:25,275 INFO: SSH connection closed.
+2026-09-24 13:49:32,809 INFO: 
+2026-09-24 13:49:32,811 INFO: ======================================================================
+2026-09-24 13:49:32,811 INFO: STONITH privilege-level update
+2026-09-24 13:49:32,812 INFO: ======================================================================
+2026-09-24 13:49:32,813 INFO: Cluster node : 10.101.28.60
+2026-09-24 13:49:32,814 INFO: SSH user     : root
+2026-09-24 13:49:32,814 INFO: Target agent : fence_ilo4
+2026-09-24 13:49:32,815 INFO: Target level : operator
+2026-09-24 13:49:32,816 INFO: SSH port     : 22
+2026-09-24 13:49:32,817 INFO: Workers      : 5
+2026-09-24 13:49:32,818 INFO: Sudo         : NO
+2026-09-24 13:49:32,819 INFO: ======================================================================
+2026-09-24 13:49:32,820 INFO: Connecting to 10.101.28.60:22...
+2026-09-24 13:49:32,826 INFO: Resolved 10.101.28.60 -> 10.101.28.60
+2026-09-24 13:49:52,827 ERROR: ERROR: SSH connection to 10.101.28.60:22 failed.
+2026-09-24 13:49:52,827 ERROR: timed out
+2026-09-24 13:49:52,829 ERROR: FATAL ERROR: timed out
+Traceback (most recent call last):
+  File "d:/Users/Lotfi/OneDrive/Thales/GIT/foreman/update-stonith-privlvl.py", line 1573, in main
+    ssh.connect()
+  File "d:/Users/Lotfi/OneDrive/Thales/GIT/foreman/update-stonith-privlvl.py", line 367, in connect
+    **connect_args
+  File "D:\Users\Lotfi\AppData\Local\Programs\Python\Python36\lib\site-packages\paramiko\client.py", line 386, in connect
+    sock.connect(addr)
+socket.timeout: timed out
+2026-09-24 13:49:52,862 INFO: SSH connection closed.

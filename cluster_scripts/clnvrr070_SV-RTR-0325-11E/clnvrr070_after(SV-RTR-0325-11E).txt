@@ -23,7 +23,15 @@ pcs resource utilization clnvrr071-picata04 rcount=1
 pcs constraint colocation add clnvrr071-picata04 with clnvrr071-vip score=INFINITY
 
 # Order constraints for Applications
-pcs constraint order start rg-clnvrr071-core then set clnvrr071-pctcfg-updater clnvrr071-picata01 clnvrr071-picata02 clnvrr071-picata03 clnvrr071-picata04 sequential=false
+pcs constraint order start rg-clnvrr071-core then start clnvrr071-pctcfg-updater
+pcs constraint order start rg-clnvrr071-core then start clnvrr071-picata01
+pcs constraint order start rg-clnvrr071-core then start clnvrr071-picata02
+pcs constraint order start rg-clnvrr071-core then start clnvrr071-picata03
+pcs constraint order start rg-clnvrr071-core then start clnvrr071-picata04
+pcs constraint order start clnvrr071-pctcfg-updater then start clnvrr071-picata01
+pcs constraint order start clnvrr071-pctcfg-updater then start clnvrr071-picata02
+pcs constraint order start clnvrr071-pctcfg-updater then start clnvrr071-picata03
+pcs constraint order start clnvrr071-pctcfg-updater then start clnvrr071-picata04
 pcs constraint order clnvrr071-nfsrec01 then clnvrr071-picata01
 pcs constraint order clnvrr071-nfsrec02 then clnvrr071-picata02
 pcs constraint order clnvrr071-nfsrec03 then clnvrr071-picata03
@@ -53,7 +61,15 @@ pcs resource utilization clnvrr072-picata04 rcount=1
 pcs constraint colocation add clnvrr072-picata04 with clnvrr072-vip score=INFINITY
 
 # Order constraints for Applications
-pcs constraint order start rg-clnvrr072-core then set clnvrr072-pctcfg-updater clnvrr072-picata01 clnvrr072-picata02 clnvrr072-picata03 clnvrr072-picata04 sequential=false
+pcs constraint order start rg-clnvrr072-core then start clnvrr072-pctcfg-updater
+pcs constraint order start rg-clnvrr072-core then start clnvrr072-picata01
+pcs constraint order start rg-clnvrr072-core then start clnvrr072-picata02
+pcs constraint order start rg-clnvrr072-core then start clnvrr072-picata03
+pcs constraint order start rg-clnvrr072-core then start clnvrr072-picata04
+pcs constraint order start clnvrr072-pctcfg-updater then start clnvrr072-picata01
+pcs constraint order start clnvrr072-pctcfg-updater then start clnvrr072-picata02
+pcs constraint order start clnvrr072-pctcfg-updater then start clnvrr072-picata03
+pcs constraint order start clnvrr072-pctcfg-updater then start clnvrr072-picata04
 pcs constraint order clnvrr072-nfsrec01 then clnvrr072-picata01
 pcs constraint order clnvrr072-nfsrec02 then clnvrr072-picata02
 pcs constraint order clnvrr072-nfsrec03 then clnvrr072-picata03
@@ -83,7 +99,15 @@ pcs resource utilization clnvrr073-picata04 rcount=1
 pcs constraint colocation add clnvrr073-picata04 with clnvrr073-vip score=INFINITY
 
 # Order constraints for Applications
-pcs constraint order start rg-clnvrr073-core then set clnvrr073-pctcfg-updater clnvrr073-picata01 clnvrr073-picata02 clnvrr073-picata03 clnvrr073-picata04 sequential=false
+pcs constraint order start rg-clnvrr073-core then start clnvrr073-pctcfg-updater
+pcs constraint order start rg-clnvrr073-core then start clnvrr073-picata01
+pcs constraint order start rg-clnvrr073-core then start clnvrr073-picata02
+pcs constraint order start rg-clnvrr073-core then start clnvrr073-picata03
+pcs constraint order start rg-clnvrr073-core then start clnvrr073-picata04
+pcs constraint order start clnvrr073-pctcfg-updater then start clnvrr073-picata01
+pcs constraint order start clnvrr073-pctcfg-updater then start clnvrr073-picata02
+pcs constraint order start clnvrr073-pctcfg-updater then start clnvrr073-picata03
+pcs constraint order start clnvrr073-pctcfg-updater then start clnvrr073-picata04
 pcs constraint order clnvrr073-nfsrec01 then clnvrr073-picata01
 pcs constraint order clnvrr073-nfsrec02 then clnvrr073-picata02
 pcs constraint order clnvrr073-nfsrec03 then clnvrr073-picata03
@@ -113,7 +137,15 @@ pcs resource utilization clnvrr074-picata04 rcount=1
 pcs constraint colocation add clnvrr074-picata04 with clnvrr074-vip score=INFINITY
 
 # Order constraints for Applications
-pcs constraint order start rg-clnvrr074-core then set clnvrr074-pctcfg-updater clnvrr074-picata01 clnvrr074-picata02 clnvrr074-picata03 clnvrr074-picata04 sequential=false
+pcs constraint order start rg-clnvrr074-core then start clnvrr074-pctcfg-updater
+pcs constraint order start rg-clnvrr074-core then start clnvrr074-picata01
+pcs constraint order start rg-clnvrr074-core then start clnvrr074-picata02
+pcs constraint order start rg-clnvrr074-core then start clnvrr074-picata03
+pcs constraint order start rg-clnvrr074-core then start clnvrr074-picata04
+pcs constraint order start clnvrr074-pctcfg-updater then start clnvrr074-picata01
+pcs constraint order start clnvrr074-pctcfg-updater then start clnvrr074-picata02
+pcs constraint order start clnvrr074-pctcfg-updater then start clnvrr074-picata03
+pcs constraint order start clnvrr074-pctcfg-updater then start clnvrr074-picata04
 pcs constraint order clnvrr074-nfsrec01 then clnvrr074-picata01
 pcs constraint order clnvrr074-nfsrec02 then clnvrr074-picata02
 pcs constraint order clnvrr074-nfsrec03 then clnvrr074-picata03
@@ -143,7 +175,15 @@ pcs resource utilization clnvrr075-picata04 rcount=1
 pcs constraint colocation add clnvrr075-picata04 with clnvrr075-vip score=INFINITY
 
 # Order constraints for Applications
-pcs constraint order start rg-clnvrr075-core then set clnvrr075-pctcfg-updater clnvrr075-picata01 clnvrr075-picata02 clnvrr075-picata03 clnvrr075-picata04 sequential=false
+pcs constraint order start rg-clnvrr075-core then start clnvrr075-pctcfg-updater
+pcs constraint order start rg-clnvrr075-core then start clnvrr075-picata01
+pcs constraint order start rg-clnvrr075-core then start clnvrr075-picata02
+pcs constraint order start rg-clnvrr075-core then start clnvrr075-picata03
+pcs constraint order start rg-clnvrr075-core then start clnvrr075-picata04
+pcs constraint order start clnvrr075-pctcfg-updater then start clnvrr075-picata01
+pcs constraint order start clnvrr075-pctcfg-updater then start clnvrr075-picata02
+pcs constraint order start clnvrr075-pctcfg-updater then start clnvrr075-picata03
+pcs constraint order start clnvrr075-pctcfg-updater then start clnvrr075-picata04
 pcs constraint order clnvrr075-nfsrec01 then clnvrr075-picata01
 pcs constraint order clnvrr075-nfsrec02 then clnvrr075-picata02
 pcs constraint order clnvrr075-nfsrec03 then clnvrr075-picata03
@@ -173,7 +213,15 @@ pcs resource utilization clnvrr076-picata04 rcount=1
 pcs constraint colocation add clnvrr076-picata04 with clnvrr076-vip score=INFINITY
 
 # Order constraints for Applications
-pcs constraint order start rg-clnvrr076-core then set clnvrr076-pctcfg-updater clnvrr076-picata01 clnvrr076-picata02 clnvrr076-picata03 clnvrr076-picata04 sequential=false
+pcs constraint order start rg-clnvrr076-core then start clnvrr076-pctcfg-updater
+pcs constraint order start rg-clnvrr076-core then start clnvrr076-picata01
+pcs constraint order start rg-clnvrr076-core then start clnvrr076-picata02
+pcs constraint order start rg-clnvrr076-core then start clnvrr076-picata03
+pcs constraint order start rg-clnvrr076-core then start clnvrr076-picata04
+pcs constraint order start clnvrr076-pctcfg-updater then start clnvrr076-picata01
+pcs constraint order start clnvrr076-pctcfg-updater then start clnvrr076-picata02
+pcs constraint order start clnvrr076-pctcfg-updater then start clnvrr076-picata03
+pcs constraint order start clnvrr076-pctcfg-updater then start clnvrr076-picata04
 pcs constraint order clnvrr076-nfsrec01 then clnvrr076-picata01
 pcs constraint order clnvrr076-nfsrec02 then clnvrr076-picata02
 pcs constraint order clnvrr076-nfsrec03 then clnvrr076-picata03
@@ -203,7 +251,15 @@ pcs resource utilization clnvrr077-picata04 rcount=1
 pcs constraint colocation add clnvrr077-picata04 with clnvrr077-vip score=INFINITY
 
 # Order constraints for Applications
-pcs constraint order start rg-clnvrr077-core then set clnvrr077-pctcfg-updater clnvrr077-picata01 clnvrr077-picata02 clnvrr077-picata03 clnvrr077-picata04 sequential=false
+pcs constraint order start rg-clnvrr077-core then start clnvrr077-pctcfg-updater
+pcs constraint order start rg-clnvrr077-core then start clnvrr077-picata01
+pcs constraint order start rg-clnvrr077-core then start clnvrr077-picata02
+pcs constraint order start rg-clnvrr077-core then start clnvrr077-picata03
+pcs constraint order start rg-clnvrr077-core then start clnvrr077-picata04
+pcs constraint order start clnvrr077-pctcfg-updater then start clnvrr077-picata01
+pcs constraint order start clnvrr077-pctcfg-updater then start clnvrr077-picata02
+pcs constraint order start clnvrr077-pctcfg-updater then start clnvrr077-picata03
+pcs constraint order start clnvrr077-pctcfg-updater then start clnvrr077-picata04
 pcs constraint order clnvrr077-nfsrec01 then clnvrr077-picata01
 pcs constraint order clnvrr077-nfsrec02 then clnvrr077-picata02
 pcs constraint order clnvrr077-nfsrec03 then clnvrr077-picata03

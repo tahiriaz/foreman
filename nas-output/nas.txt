@@ -1,23 +1,38 @@
  for i in {1..7}; do
-    chown recorder:recorder clnvrm00${i}/app
-    chown recorder:recorder clnvrm00${i}/data
-    chown recorder:recorder clnvrm00${i}/etc
-    chown root:wheel clnvrm00${i}/log
+    chown recorder:recorder clnvrm02${i}/app
+    chown recorder:recorder clnvrm02${i}/data
+    chown recorder:recorder clnvrm02${i}/etc
+    chown root:wheel clnvrm02${i}/log
 done
 
 for i in {1..7}; do
-    chmod 755 clnvrm00${i}/app
-    chmod 700 clnvrm00${i}/data
-    chmod 755 clnvrm00${i}/etc
-    chmod 755 clnvrm00${i}/log
+    chmod 755 clnvrm02${i}/app
+    chmod 700 clnvrm02${i}/data
+    chmod 755 clnvrm02${i}/etc
+    chmod 755 clnvrm02${i}/log
 done
 
-isi nfs exports modify 10 \
-    --zone=mtr-rec \
-    --root-clients 10.101.30.101 \
-    --add-root-clients 10.101.30.102 \
-    --add-root-clients 10.101.30.103 \
-    --add-root-clients 10.101.30.104 \
-    --add-root-clients 10.101.30.105 \
-    --add-root-clients 10.101.30.106 \
-    --add-root-clients 10.101.30.107
+isi nfs exports modify 13 \
+  --zone=mtr-rec \
+  --read-write-clients=10.101.30.0/23 \
+  --root-clients=10.101.30.0/23
+
+
+for j in {0..4}; do
+    for i in {1..7}; do
+        chown recorder:recorder clnvrm0${j}0/clnvrm0${j}${i}/app
+        chown recorder:recorder clnvrm0${j}0/clnvrm0${j}${i}/data
+        chown recorder:recorder clnvrm0${j}0/clnvrm0${j}${i}/etc
+        chown root:wheel clnvrm0${j}0/clnvrm0${j}${i}/log
+
+        chmod 755 clnvrm0${j}0/clnvrm0${j}${i}/app
+        chmod 700 clnvrm0${j}0/clnvrm0${j}${i}/data
+        chmod 755 clnvrm0${j}0/clnvrm0${j}${i}/etc
+        chmod 755 clnvrm0${j}0/clnvrm0${j}${i}/log
+    done
+done
+
+pcs constraint order start rg-clnvrm007-core then start clnvrm007-nfsrec01
+pcs constraint order start rg-clnvrm007-core then start clnvrm007-nfsrec02
+pcs constraint order start rg-clnvrm007-core then start clnvrm007-nfsrec03
+pcs constraint order start rg-clnvrm007-core then start clnvrm007-nfsrec04
