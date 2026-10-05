@@ -44,7 +44,7 @@ except ImportError:
 
 # ============================================================
 
-CLUSTER_IP = "10.101.28.11"
+CLUSTER_IP = "clnvrm001.mak.iss"
 
 ssh_user = "root"
 

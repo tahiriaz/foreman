@@ -26,7 +26,6 @@ pcs resource defaults update resource-stickiness=INFINITY migration-threshold=3 
 pcs stonith create fence_tvsnvrapp041mp.mak.iss fence_ilo4 ip=10.101.18.69 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp041mp.mak.iss op monitor interval=600s
 pcs stonith create fence_tvsnvrapp042mp.mak.iss fence_ilo4 ip=10.101.18.70 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp042mp.mak.iss op monitor interval=600s
 pcs stonith create fence_tvsnvrapp043mp.mak.iss fence_ilo4 ip=10.101.18.71 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp043mp.mak.iss op monitor interval=600s
-pcs stonith create fence_tvsnvrapp044mp.mak.iss fence_ilo4 ip=10.101.18.72 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp044mp.mak.iss op monitor interval=600s
 pcs stonith create fence_tvsnvrapp045mp.mak.iss fence_ilo4 ip=10.101.18.73 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp045mp.mak.iss op monitor interval=600s
 pcs stonith create fence_tvsnvrapp046mp.mak.iss fence_ilo4 ip=10.101.18.74 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp046mp.mak.iss op monitor interval=600s
 pcs stonith create fence_tvsnvrapp047mp.mak.iss fence_ilo4 ip=10.101.18.75 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp047mp.mak.iss op monitor interval=600s

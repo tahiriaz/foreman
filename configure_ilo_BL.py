@@ -108,6 +108,14 @@ FENCE_USER_NAME = vars.FENCE_USER_NAME
 FENCE_USER_LOGIN = vars.FENCE_USER_LOGIN
 FENCE_USER_PASSWORD = vars.FENCE_USER_PASSWORD
 
+FENCE_OPERATOR_PRIVILEGES = {
+    "ADMIN_PRIV": "N",
+    "REMOTE_CONS_PRIV": "Y",
+    "RESET_SERVER_PRIV": "Y",
+    "VIRTUAL_MEDIA_PRIV": "Y",
+    "CONFIG_ILO_PRIV": "N",
+}
+
 RIBCL_CONCURRENT_SESSIONS = vars.ILO_BL_RIBCL_CONCURRENT_SESSIONS
 REDFISH_CONCURRENT_SESSIONS = vars.ILO_BL_REDFISH_CONCURRENT_SESSIONS
 
@@ -190,6 +198,50 @@ def build_ribcl_user_add() -> str:
 <ADMIN_PRIV VALUE="Y"/><REMOTE_CONS_PRIV VALUE="Y"/><RESET_SERVER_PRIV VALUE="Y"/>
 <VIRTUAL_MEDIA_PRIV VALUE="Y"/><CONFIG_ILO_PRIV VALUE="Y"/>
 </ADD_USER>
+</USER_INFO>
+</LOGIN>
+</RIBCL>"""
+
+
+def build_ribcl_fence_user_check() -> str:
+    return f"""<RIBCL VERSION="2.0">
+<LOGIN USER_LOGIN="{xml_attr(OA_USERNAME)}" PASSWORD="{xml_attr(OA_PASSWORD)}">
+<USER_INFO MODE="read">
+<GET_USER USER_LOGIN="{xml_attr(FENCE_USER_LOGIN)}"/>
+</USER_INFO>
+</LOGIN>
+</RIBCL>"""
+
+
+def build_ribcl_fence_user_add() -> str:
+    privileges = FENCE_OPERATOR_PRIVILEGES
+    return f"""<RIBCL VERSION="2.0">
+<LOGIN USER_LOGIN="{xml_attr(OA_USERNAME)}" PASSWORD="{xml_attr(OA_PASSWORD)}">
+<USER_INFO MODE="write">
+<ADD_USER USER_NAME="{xml_attr(FENCE_USER_NAME)}" USER_LOGIN="{xml_attr(FENCE_USER_LOGIN)}" PASSWORD="{xml_attr(FENCE_USER_PASSWORD)}">
+<ADMIN_PRIV VALUE="{privileges['ADMIN_PRIV']}"/>
+<REMOTE_CONS_PRIV VALUE="{privileges['REMOTE_CONS_PRIV']}"/>
+<RESET_SERVER_PRIV VALUE="{privileges['RESET_SERVER_PRIV']}"/>
+<VIRTUAL_MEDIA_PRIV VALUE="{privileges['VIRTUAL_MEDIA_PRIV']}"/>
+<CONFIG_ILO_PRIV VALUE="{privileges['CONFIG_ILO_PRIV']}"/>
+</ADD_USER>
+</USER_INFO>
+</LOGIN>
+</RIBCL>"""
+
+
+def build_ribcl_fence_user_modify() -> str:
+    privileges = FENCE_OPERATOR_PRIVILEGES
+    return f"""<RIBCL VERSION="2.0">
+<LOGIN USER_LOGIN="{xml_attr(OA_USERNAME)}" PASSWORD="{xml_attr(OA_PASSWORD)}">
+<USER_INFO MODE="write">
+<MOD_USER USER_LOGIN="{xml_attr(FENCE_USER_LOGIN)}">
+<ADMIN_PRIV VALUE="{privileges['ADMIN_PRIV']}"/>
+<REMOTE_CONS_PRIV VALUE="{privileges['REMOTE_CONS_PRIV']}"/>
+<RESET_SERVER_PRIV VALUE="{privileges['RESET_SERVER_PRIV']}"/>
+<VIRTUAL_MEDIA_PRIV VALUE="{privileges['VIRTUAL_MEDIA_PRIV']}"/>
+<CONFIG_ILO_PRIV VALUE="{privileges['CONFIG_ILO_PRIV']}"/>
+</MOD_USER>
 </USER_INFO>
 </LOGIN>
 </RIBCL>"""
@@ -490,6 +542,36 @@ def ribcl_user_exists(output: str, login_name: str) -> Tuple[bool, Optional[str]
     return False, "GET_USER completed successfully but did not return the requested account"
 
 
+def parse_ribcl_user_privileges(output: str, login_name: str) -> Dict[str, str]:
+    result_text = extract_ribcl_results(output)
+    for tag in re.findall(r"<GET_USER\b([^>]*)/?>", result_text, flags=re.IGNORECASE | re.DOTALL):
+        login_match = re.search(
+            r'\bUSER_LOGIN\s*=\s*["\']([^"\']+)["\']',
+            tag,
+            flags=re.IGNORECASE,
+        )
+        if not login_match or login_match.group(1).strip().lower() != login_name.strip().lower():
+            continue
+
+        privileges: Dict[str, str] = {}
+        for name in FENCE_OPERATOR_PRIVILEGES:
+            match = re.search(
+                r'\b{}\s*=\s*["\']([^"\']+)["\']'.format(re.escape(name)),
+                tag,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                value = match.group(1).strip().upper()
+                if value in ("Y", "YES", "TRUE", "1"):
+                    privileges[name] = "Y"
+                elif value in ("N", "NO", "FALSE", "0"):
+                    privileges[name] = "N"
+                else:
+                    privileges[name] = value
+        return privileges
+    return {}
+
+
 # ============================================================================
 # OA CONNECTION (Context Manager)
 # ============================================================================
@@ -716,6 +798,93 @@ def ensure_bootstrap_admin(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict
 
 
 # ============================================================================
+# FENCE USER OPERATOR CONFIGURATION
+# ============================================================================
+
+def ensure_fence_operator(oa: OAConnection, srv: Dict[str, Any], res_dict: Dict[str, Any]) -> bool:
+    slot = srv["enclosure_slot"]
+    ip = srv["ilo_ip"]
+    log(slot, ip, f"RIBCL: Ensuring '{FENCE_USER_LOGIN}' has Operator privileges...")
+
+    try:
+        check_output = oa.execute_hponcfg(
+            slot,
+            build_ribcl_fence_user_check(),
+            end_marker="ILO_FENCE_USER_CHECK_EOF",
+        )
+    except Exception as exc:
+        mark_failure(res_dict, "Usr", f"Fence user check failed: {exc}")
+        return False
+
+    if DEBUG:
+        debug_block(f"FENCE USER CHECK - BAY {slot}", check_output)
+
+    exists, check_error = ribcl_user_exists(check_output, FENCE_USER_LOGIN)
+    if check_error not in (None, "not found"):
+        mark_failure(res_dict, "Usr", f"Unable to determine whether '{FENCE_USER_LOGIN}' exists: {check_error}")
+        if DEBUG_ON_FAILURE:
+            debug_block(f"FAILED FENCE USER CHECK - BAY {slot}", check_output, force=True)
+        return False
+
+    privileges = parse_ribcl_user_privileges(check_output, FENCE_USER_LOGIN)
+    if exists and all(
+        privileges.get(name) == expected
+        for name, expected in FENCE_OPERATOR_PRIVILEGES.items()
+    ):
+        res_dict["Usr"] = TaskStatus.SKIP.value
+        log(slot, ip, f"  -> '{FENCE_USER_LOGIN}' already has Operator privileges.")
+        return True
+
+    operation = "MOD_USER" if exists else "ADD_USER"
+    ribcl = build_ribcl_fence_user_modify() if exists else build_ribcl_fence_user_add()
+    end_marker = "ILO_FENCE_USER_MOD_EOF" if exists else "ILO_FENCE_USER_ADD_EOF"
+    log(slot, ip, f"  -> {'Updating' if exists else 'Creating'} '{FENCE_USER_LOGIN}' as Operator...")
+
+    try:
+        update_output = oa.execute_hponcfg(slot, ribcl, end_marker=end_marker)
+    except Exception as exc:
+        mark_failure(res_dict, "Usr", f"Fence user {operation} failed: {exc}")
+        return False
+
+    errors = ribcl_errors(update_output, allowed_statuses=("0X0000",))
+    if errors:
+        mark_failure(res_dict, "Usr", f"Fence user {operation} failed: {'; '.join(errors)}")
+        if DEBUG_ON_FAILURE:
+            debug_block(f"FAILED FENCE USER {operation} - BAY {slot}", update_output, force=True)
+        return False
+
+    try:
+        verify_output = oa.execute_hponcfg(
+            slot,
+            build_ribcl_fence_user_check(),
+            end_marker="ILO_FENCE_USER_VERIFY_EOF",
+        )
+    except Exception as exc:
+        mark_failure(res_dict, "Usr", f"Fence user privilege verification failed: {exc}")
+        return False
+
+    verified, verify_error = ribcl_user_exists(verify_output, FENCE_USER_LOGIN)
+    verified_privileges = parse_ribcl_user_privileges(verify_output, FENCE_USER_LOGIN)
+    if not verified or any(
+        verified_privileges.get(name) != expected
+        for name, expected in FENCE_OPERATOR_PRIVILEGES.items()
+    ):
+        actual = ", ".join(
+            f"{name}={verified_privileges.get(name, '?')}"
+            for name in FENCE_OPERATOR_PRIVILEGES
+        )
+        detail = verify_error or f"privileges do not match Operator: {actual}"
+        mark_failure(res_dict, "Usr", f"'{FENCE_USER_LOGIN}' could not be verified as Operator: {detail}")
+        if DEBUG_ON_FAILURE:
+            debug_block(f"FAILED FENCE USER VERIFY - BAY {slot}", verify_output, force=True)
+        return False
+
+    res_dict["Usr"] = TaskStatus.OK.value
+    log(slot, ip, f"  -> '{FENCE_USER_LOGIN}' is verified as Operator.")
+    return True
+
+
+# ============================================================================
 # COMBINED RIBCL CONFIGURATION
 # ============================================================================
 
@@ -812,6 +981,7 @@ def process_ribcl_server(oa: OAConnection, srv: Dict[str, Any], ldap_ca_cert: st
 
     try:
         if not ensure_bootstrap_admin(oa, srv, result): return
+        ensure_fence_operator(oa, srv, result)
         if configure_combined_ribcl(oa, srv, scope_data["DIRECTORY_SERVER"], ldap_ca_cert, result):
             verify_ldap_ribcl(oa, srv, scope_data["DIRECTORY_SERVER"], result)
     except Exception as exc:
@@ -1072,37 +1242,6 @@ class ILORedfishProcessor:
             self.res["Lic"] = TaskStatus.OK.value
         except Exception as exc:
             self._handle_error("Lic", exc)
-
-    def configure_fence_user(self, friendly_name: str, login_name: str, password: str):
-        try:
-            accounts_url = f"{self.base_url}/redfish/v1/AccountService/Accounts/"
-            resp = self._get(accounts_url)
-            resp.raise_for_status()
-            members = resp.json().get("Members", [])
-
-            for member in members:
-                if member.get("UserName") == login_name:
-                    self.res["Usr"] = TaskStatus.SKIP.value
-                    return
-            for member in members:
-                uri = member.get("@odata.id")
-                if not uri: continue
-                account_resp = self._get(f"{self.base_url}{uri}")
-                if account_resp.status_code >= 400: continue
-                if account_resp.json().get("UserName") == login_name:
-                    self.res["Usr"] = TaskStatus.SKIP.value
-                    return
-
-            payload = {
-                "UserName": login_name,
-                "Password": password,
-                "Oem": {"Hp": {"LoginName": friendly_name, "Privileges": {"RemoteConsolePriv": False, "VirtualMediaPriv": False, "UserConfigPriv": False, "VirtualPowerAndResetPriv": True, "iLOConfigPriv": False}}}
-            }
-            resp = self._post(accounts_url, payload)
-            resp.raise_for_status()
-            self.res["Usr"] = TaskStatus.OK.value
-        except Exception as exc:
-            self._handle_error("Usr", exc)
 
     def configure_network(self, ilo_hostname: str, primary_dns: str, secondary_dns: str):
         try:
@@ -1415,7 +1554,6 @@ def process_redfish(srv: Dict[str, Any], global_results: Dict[str, Dict[str, Any
         with ILORedfishProcessor(ip, slot, ILO_LOGIN, ILO_PASSWORD, result) as ilo:
             if not ilo.authenticate(): return
             ilo.configure_license(ILO_ADVANCED_LICENSE_KEY)
-            ilo.configure_fence_user(FENCE_USER_NAME, FENCE_USER_LOGIN, FENCE_USER_PASSWORD)
             ilo.configure_network(srv["ilo_hostname"], scope_data["PRIMARY_DNS"], scope_data["SECONDARY_DNS"])
             ilo.configure_sntp(scope_data.get("PRIMARY_NTP", ""), scope_data.get("SECONDARY_NTP", ""), ILO_TIMEZONE_SEARCH)
             ilo.configure_ipmi(IPMI_PORT)

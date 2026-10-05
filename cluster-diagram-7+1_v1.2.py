@@ -44,18 +44,20 @@ except ImportError:
 
 # ============================================================
 
-CLUSTER_IP = "10.101.28.11"
+CLUSTER_IP = "clnvrm041.mak.iss"
+
+# This NVR cluster is designed as a 7+1 cluster:
+# 7 workload nodes + 1 additional node = 8 configured nodes expected.
+CLUSTER_TYPE = "7+1"
+EXPECTED_NODE_COUNT = 8
 
 ssh_user = "root"
 
-# Put your SSH password here.
-
-# This is intentionally not copied from the previous script.
-
-ssh_password = os.environ.get("SSH_PASSWORD")
-if not ssh_password:
-    import getpass
-    ssh_password = getpass.getpass("SSH password: ")
+# Hardcoded SSH password.
+# WARNING: storing a password in source code exposes the credential to anyone
+# who can read this file. This is kept here because this script is intended
+# to run without prompting for a password.
+ssh_password = "Th@les01"
 
 ssh_port = 22
 
@@ -87,7 +89,17 @@ NODE_RESOURCE_HEIGHT = 34
 
 NODE_RESOURCE_GAP = 5
 
+# Space reserved immediately above each resource group for its label.
+# Keeping this outside the group boundary prevents the label from
+# obscuring either the preceding resource or a group member.
+GROUP_LABEL_HEIGHT = 28
+
 PANEL_GAP = 12
+
+# Dedicated area between the node/resource map and the dashboard panels.
+# Constraint descriptions are rendered here so they never overlap resources.
+CONSTRAINT_BAND_HEIGHT = 122
+CONSTRAINT_BAND_GAP = 10
 
 PANEL_HEADER_HEIGHT = 38
 
@@ -1322,13 +1334,15 @@ constraint_counts = {
 
     "anti_colocation": 0,
 
-    "core_anti_colocation": 0,
-
     "vip_anti_colocation": 0,
 
-    "nfsrec_core_colocation": 0,
+    "vip_workload_colocation": 0,
 
-    "vip_core_colocation": 0
+    "core_to_nfsrec_order": 0,
+
+    "nfsrec_to_picata_order": 0,
+
+    "etc_to_updater_order": 0
 
 }
 
@@ -1353,6 +1367,49 @@ if constraints_section is not None:
         if tag == "rsc_order":
 
             constraint_counts["order"] += 1
+
+            first = constraint.get("first", "").lower()
+
+            then = constraint.get("then", "").lower()
+
+            if (
+                first.startswith("rg-clnvrm")
+
+                and first.endswith("-core")
+
+                and then.startswith("clnvrm")
+
+                and "-nfsrec" in then
+
+            ):
+
+                constraint_counts["core_to_nfsrec_order"] += 1
+
+            elif (
+                first.startswith("clnvrm")
+
+                and "-nfsrec" in first
+
+                and then.startswith("clnvrm")
+
+                and "-picata" in then
+
+            ):
+
+                constraint_counts["nfsrec_to_picata_order"] += 1
+
+            elif (
+                first.startswith("clnvrm")
+
+                and first.endswith("-nfsetc01")
+
+                and then.startswith("clnvrm")
+
+                and then.endswith("-pctcfg-updater")
+
+            ):
+
+                constraint_counts["etc_to_updater_order"] += 1
 
         elif tag == "rsc_colocation":
 
@@ -1382,33 +1439,7 @@ if constraints_section is not None:
 
                 constraint_counts["anti_colocation"] += 1
 
-                # The CIB represents anti-colocation as an
-
-                # rsc_colocation with score=-INFINITY.
-
-                # Separate CORE and VIP anti-colocation so
-
-                # validation can verify the complete model.
-
                 if (
-
-                    rsc.startswith("rg-clnvrm")
-
-                    and rsc.endswith("-core")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ):
-
-                    constraint_counts[
-
-                        "core_anti_colocation"
-
-                    ] += 1
-
-                elif (
 
                     rsc.startswith("clnvrm")
 
@@ -1428,71 +1459,19 @@ if constraints_section is not None:
 
             else:
 
-                # Positive colocation constraints.
-
                 if (
 
-                    rsc.startswith("clnvrm")
+                    rsc.startswith(("clnvrm", "rg-clnvrm"))
 
-                    and rsc.endswith("-nfsrec01")
+                    and with_rsc.startswith("clnvrm")
 
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ) or (
-
-                    rsc.startswith("clnvrm")
-
-                    and rsc.endswith("-nfsrec02")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ) or (
-
-                    rsc.startswith("clnvrm")
-
-                    and rsc.endswith("-nfsrec03")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ) or (
-
-                    rsc.startswith("clnvrm")
-
-                    and rsc.endswith("-nfsrec04")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
+                    and with_rsc.endswith("-vip")
 
                 ):
 
                     constraint_counts[
 
-                        "nfsrec_core_colocation"
-
-                    ] += 1
-
-                elif (
-
-                    rsc.startswith("clnvrm")
-
-                    and rsc.endswith("-vip")
-
-                    and with_rsc.startswith("rg-clnvrm")
-
-                    and with_rsc.endswith("-core")
-
-                ):
-
-                    constraint_counts[
-
-                        "vip_core_colocation"
+                        "vip_workload_colocation"
 
                     ] += 1
 
@@ -1717,9 +1696,17 @@ for node in nodes.values():
 
 
 # ============================================================
+# NODE CONFIGURATION WARNING
+# ============================================================
+# A 7+1 NVR cluster must have 8 nodes configured in the Pacemaker CIB.
+configured_node_count = len(nodes)
+missing_configured_nodes = max(
+    EXPECTED_NODE_COUNT - configured_node_count,
+    0
+)
 
+# ============================================================
 # GROUP COUNTS
-
 # ============================================================
 
 running_groups = 0
@@ -1822,6 +1809,16 @@ def node_height(node):
 
     )
 
+    group_count = len({
+
+        resource_to_group[resource_id]
+
+        for resource_id in node["resources"]
+
+        if resource_id in resource_to_group
+
+    })
+
     return (
 
         NODE_HEADER_HEIGHT
@@ -1837,6 +1834,8 @@ def node_height(node):
             + NODE_RESOURCE_GAP
 
         )
+
+        + group_count * GROUP_LABEL_HEIGHT
 
         + 20
 
@@ -1933,6 +1932,10 @@ image_height = (
     TOP_MARGIN
 
     + max_node_height
+
+    + CONSTRAINT_BAND_GAP
+
+    + CONSTRAINT_BAND_HEIGHT
 
     + UNASSIGNED_STRIP_HEIGHT
 
@@ -2239,9 +2242,80 @@ draw.text(
 
 
 # ============================================================
+# NODE CONFIGURATION WARNING
+# ============================================================
+# Fewer than 8 node definitions means the 7+1 cluster is missing a node
+# configuration. This warning is orange and does not change the runtime
+# health badge.
+if missing_configured_nodes > 0:
+    warning_text = (
+        "CONFIGURATION WARNING: "
+        + CLUSTER_TYPE
+        + " cluster requires "
+        + str(EXPECTED_NODE_COUNT)
+        + " configured nodes — "
+        + str(configured_node_count)
+        + " configured, "
+        + str(missing_configured_nodes)
+        + " node missing"
+        + ("" if missing_configured_nodes == 1 else "s")
+        + " to be configured"
+    )
 
+    warning_font = SMALL_BOLD
+    warning_h = 36
+    warning_text_w, _ = text_size(draw, warning_text, warning_font)
+    warning_w = min(
+        image_width - (SIDE_MARGIN * 2),
+        max(720, warning_text_w + 52)
+    )
+    warning_x = SIDE_MARGIN
+    warning_y = 82
+
+    draw.rounded_rectangle(
+        (
+            warning_x,
+            warning_y,
+            warning_x + warning_w,
+            warning_y + warning_h
+        ),
+        radius=7,
+        outline=ORANGE,
+        width=2,
+        fill=LIGHT_ORANGE
+    )
+
+    draw.ellipse(
+        (
+            warning_x + 10,
+            warning_y + 9,
+            warning_x + 28,
+            warning_y + 27
+        ),
+        fill=ORANGE
+    )
+
+    centered_text(
+        draw,
+        warning_x + 19,
+        warning_y + 18,
+        "!",
+        SMALL_BOLD,
+        WHITE
+    )
+
+    draw.text(
+        (
+            warning_x + 38,
+            warning_y + 10
+        ),
+        warning_text,
+        font=warning_font,
+        fill=ORANGE
+    )
+
+# ============================================================
 # NODE DRAWING
-
 # ============================================================
 
 resource_boxes = {}
@@ -2460,12 +2534,16 @@ for node_name in node_names:
             return (11, rid)
         if rid.endswith("-nfsdat01"):
             return (12, rid)
+        if rid.endswith("-nfsetc01"):
+            return (13, rid)
 
         match = re.search(r"-nfsrec(\d+)$", rid)
         if match:
             return (20, int(match.group(1)))
 
         return (50, rid)
+
+    drawn_groups = set()
 
     for resource_id in sorted(
         node["resources"],
@@ -2481,6 +2559,14 @@ for node_name in node_names:
         if resource is None:
 
             continue
+
+        group_id = resource_to_group.get(resource_id)
+
+        if group_id and group_id not in drawn_groups:
+
+            resource_y += GROUP_LABEL_HEIGHT
+
+            drawn_groups.add(group_id)
 
         # State priority:
 
@@ -2669,286 +2755,174 @@ for node_name in node_names:
 
 
 # ============================================================
-# CONSTRAINT ARCHITECTURE DIAGRAM
 # ============================================================
-# Geometry used by the constraint annotations.
+# CONSTRAINT ARCHITECTURE / FLOW BAND
+# ============================================================
+# All constraint descriptions live inside this dedicated rectangle.
+# Nothing is drawn below the rectangle, so labels such as VIP ↔ VIP and
+# Anti-colocation cannot spill into the dashboard panels.
+
 node_bottom = TOP_MARGIN + max_node_height
-# Visualizes the validated model:
-#
-#   VIP -> CORE                 colocation INFINITY
-#   CORE -> NFSREC01-04         mandatory start order
-#   NFSREC01-04 -> CORE         colocation INFINITY
-#   CORE <-> CORE               anti-colocation -INFINITY
-#   VIP <-> VIP                 anti-colocation -INFINITY
-#
-# Anti-colocation constraints are validated from the CIB and shown
-# numerically in the dashboard panels, but are intentionally not
-# drawn as red arrows to keep the resource map readable.
+constraint_band_y = node_bottom + CONSTRAINT_BAND_GAP
+constraint_band_x = SIDE_MARGIN
+constraint_band_w = image_width - (SIDE_MARGIN * 2)
+constraint_band_h = CONSTRAINT_BAND_HEIGHT
 
-def draw_arrowhead(draw_obj, x, y, angle, color, size=8):
-    import math
-    left = angle + math.pi * 0.82
-    right = angle - math.pi * 0.82
-    draw_obj.polygon(
-        [
-            (x, y),
-            (x + size * math.cos(left), y + size * math.sin(left)),
-            (x + size * math.cos(right), y + size * math.sin(right))
-        ],
-        fill=color
-    )
-
-
-def draw_dashed_polyline(draw_obj, points, fill, width=2, dash=8, gap=5):
-    import math
-    for p1, p2 in zip(points[:-1], points[1:]):
-        x1, y1 = p1
-        x2, y2 = p2
-        dx = x2 - x1
-        dy = y2 - y1
-        length = math.hypot(dx, dy)
-        if length == 0:
-            continue
-
-        ux = dx / length
-        uy = dy / length
-        pos = 0.0
-
-        while pos < length:
-            end = min(pos + dash, length)
-            draw_obj.line(
-                (
-                    x1 + ux * pos,
-                    y1 + uy * pos,
-                    x1 + ux * end,
-                    y1 + uy * end
-                ),
-                fill=fill,
-                width=width
-            )
-            pos += dash + gap
-
-
-# ------------------------------------------------------------
-# Core group outlines
-# ------------------------------------------------------------
-for group_id, group in groups.items():
-    member_boxes = [
-        resource_boxes[rid]
-        for rid in group["members"]
-        if rid in resource_boxes
-    ]
-    if not member_boxes:
-        continue
-
-    x1 = min(b["x1"] for b in member_boxes) - 7
-    y1 = min(b["y1"] for b in member_boxes) - 29
-    x2 = max(b["x2"] for b in member_boxes) + 7
-    y2 = max(b["y2"] for b in member_boxes) + 7
-
-    group_boxes[group_id] = {
-        "x1": x1,
-        "y1": y1,
-        "x2": x2,
-        "y2": y2,
-        "cx": (x1 + x2) / 2,
-        "cy": (y1 + y2) / 2
-    }
-
-    draw.rounded_rectangle(
-        (x1, y1, x2, y2),
-        radius=8,
-        outline=BLUE,
-        width=2
-    )
-
-    label = group_id
-    label_w, label_h = text_size(
-        draw, label, PANEL_TEXT_BOLD
-    )
-    label_x = (x1 + x2 - label_w) / 2
-    label_y = y1 - 1
-
-    draw.rectangle(
-        (
-            label_x - 5,
-            label_y - 2,
-            label_x + label_w + 5,
-            label_y + label_h + 2
-        ),
-        fill=WHITE
-    )
-    draw.text(
-        (label_x, label_y),
-        label,
-        font=PANEL_TEXT_BOLD,
-        fill=BLUE
-    )
-
-
-# ------------------------------------------------------------
-# VIP -> CORE colocation
-# ------------------------------------------------------------
-vip_ids = sorted(
-    rid for rid in resources
-    if rid.lower().endswith("-vip")
+draw.rounded_rectangle(
+    (
+        constraint_band_x,
+        constraint_band_y,
+        constraint_band_x + constraint_band_w,
+        constraint_band_y + constraint_band_h
+    ),
+    radius=7,
+    outline=PURPLE,
+    width=2,
+    fill=WHITE
 )
 
-for vip_id in vip_ids:
-    instance = vip_id.rsplit("-", 1)[0]
-    core_id = "rg-" + instance + "-core"
+draw.rounded_rectangle(
+    (
+        constraint_band_x,
+        constraint_band_y,
+        constraint_band_x + constraint_band_w,
+        constraint_band_y + PANEL_HEADER_HEIGHT
+    ),
+    radius=7,
+    fill=PURPLE
+)
 
-    if vip_id not in resource_boxes or core_id not in group_boxes:
-        continue
+draw.rectangle(
+    (
+        constraint_band_x,
+        constraint_band_y + PANEL_HEADER_HEIGHT - 8,
+        constraint_band_x + constraint_band_w,
+        constraint_band_y + PANEL_HEADER_HEIGHT
+    ),
+    fill=PURPLE
+)
 
-    vb = resource_boxes[vip_id]
-    gb = group_boxes[core_id]
+draw.text(
+    (
+        constraint_band_x + 12,
+        constraint_band_y + 10
+    ),
+    "CONSTRAINT FLOW",
+    font=PANEL_FONT,
+    fill=WHITE
+)
 
-    y1 = vb["y2"] + 2
-    y2 = gb["y1"] - 2
+# Total order count stays inside the header, never below the rectangle.
+total_order_text = "Total order constraints: {}".format(
+    constraint_counts["order"]
+)
+total_order_w, total_order_h = text_size(
+    draw,
+    total_order_text,
+    SMALL_BOLD
+)
+draw.text(
+    (
+        constraint_band_x + constraint_band_w - total_order_w - 14,
+        constraint_band_y + (PANEL_HEADER_HEIGHT - total_order_h) / 2
+    ),
+    total_order_text,
+    font=SMALL_BOLD,
+    fill=WHITE
+)
 
-    if y2 > y1:
-        draw.line(
-            (vb["cx"], y1, gb["cx"], y2),
-            fill=CONSTRAINT_GREEN,
-            width=CONSTRAINT_ARROW_WIDTH
-        )
-        draw_arrowhead(
-            draw, gb["cx"], y2, 1.5708,
-            CONSTRAINT_GREEN
-        )
-        draw_arrowhead(
-            draw, vb["cx"], y1, -1.5708,
-            CONSTRAINT_GREEN
-        )
-
-
-# ------------------------------------------------------------
-# CORE -> NFSREC order and NFSREC -> CORE colocation
-# ------------------------------------------------------------
-for group_id, gb in group_boxes.items():
-    instance = group_id.replace("rg-", "").replace("-core", "")
-
-    rec_ids = [
-        rid for rid in resources
-        if rid.lower().startswith(instance + "-nfsrec")
-    ]
-
-    rec_boxes = [
-        resource_boxes[rid]
-        for rid in rec_ids
-        if rid in resource_boxes
-    ]
-    if not rec_boxes:
-        continue
-
-    first_y = min(b["y1"] for b in rec_boxes)
-    last_y = max(b["y2"] for b in rec_boxes)
-
-    start_y = gb["y2"] + 2
-    end_y = first_y - 2
-
-    # Mandatory start order: CORE must start before each NFSREC.
-    if end_y > start_y:
-        draw.line(
-            (gb["cx"], start_y, gb["cx"], end_y),
-            fill=CONSTRAINT_BLUE,
-            width=CONSTRAINT_ARROW_WIDTH
-        )
-        draw_arrowhead(
-            draw, gb["cx"], end_y, 1.5708,
-            CONSTRAINT_BLUE
-        )
-        draw.text(
-            (gb["x2"] + 8, (start_y + end_y) / 2 - 8),
-            "ORDER ×4",
-            font=SMALL_BOLD,
-            fill=CONSTRAINT_BLUE
-        )
-
-    # Four NFSREC -> CORE colocations represented by a bracket.
-    bracket_x = gb["x1"] - 7
-    if bracket_x > SIDE_MARGIN:
-        draw.line(
-            (bracket_x, first_y, bracket_x, last_y),
-            fill=CONSTRAINT_GREEN,
-            width=2
-        )
-
-        for box in rec_boxes:
-            draw.line(
-                (box["x1"] - 2, box["cy"], bracket_x, box["cy"]),
-                fill=CONSTRAINT_GREEN,
-                width=2
-            )
-
-        return_y = (first_y + last_y) / 2
-        draw.line(
-            (bracket_x, return_y, gb["x1"], return_y),
-            fill=CONSTRAINT_GREEN,
-            width=2
-        )
-        draw_arrowhead(
-            draw, gb["x1"], return_y, 0,
-            CONSTRAINT_GREEN
-        )
-
-
-# ------------------------------------------------------------
-# Constraint legend
-# ------------------------------------------------------------
-constraint_legend_y = node_bottom - 27
-legend_items = [
-    (CONSTRAINT_GREEN, "Colocation  INFINITY", False),
-    (CONSTRAINT_BLUE, "Order  CORE → NFSREC", False)
+constraint_items = [
+    (
+        CONSTRAINT_GREEN,
+        "VIP ↔ WORKLOAD",
+        "Colocation",
+        constraint_counts["vip_workload_colocation"]
+    ),
+    (
+        CONSTRAINT_BLUE,
+        "CORE → NFSREC01–04",
+        "Start order",
+        constraint_counts["core_to_nfsrec_order"]
+    ),
+    (
+        CONSTRAINT_BLUE,
+        "NFSREC01–04 → PICATA01–04",
+        "Start order",
+        constraint_counts["nfsrec_to_picata_order"]
+    ),
+    (
+        CONSTRAINT_BLUE,
+        "NFSETC01 → PCTCFG-UPDATER",
+        "Start order",
+        constraint_counts["etc_to_updater_order"]
+    ),
+    (
+        RED,
+        "VIP ↔ VIP",
+        "Anti-colocation",
+        constraint_counts["vip_anti_colocation"]
+    )
 ]
 
-legend_x = SIDE_MARGIN + 8
+# Two columns x three rows. The sixth cell remains empty.
+band_inner_x = constraint_band_x + 14
+band_inner_y = constraint_band_y + PANEL_HEADER_HEIGHT + 7
+band_inner_w = constraint_band_w - 28
+column_gap = 28
+column_w = (band_inner_w - column_gap) / 2
+row_h = 25
 
-for color, description, dashed in legend_items:
-    if dashed:
-        draw_dashed_polyline(
-            draw,
-            [
-                (legend_x, constraint_legend_y + 8),
-                (legend_x + 32, constraint_legend_y + 8)
-            ],
-            color,
-            width=2,
-            dash=6,
-            gap=4
-        )
-    else:
-        draw.line(
-            (
-                legend_x,
-                constraint_legend_y + 8,
-                legend_x + 32,
-                constraint_legend_y + 8
-            ),
-            fill=color,
-            width=3
-        )
+for index, (color, relation, kind, count) in enumerate(constraint_items):
+    col = index % 2
+    row = index // 2
+    item_x = band_inner_x + col * (column_w + column_gap)
+    item_y = band_inner_y + row * row_h
+    right_x = item_x + column_w
+
+    draw.line(
+        (
+            item_x,
+            item_y + 8,
+            item_x + 22,
+            item_y + 8
+        ),
+        fill=color,
+        width=3
+    )
 
     draw.text(
-        (legend_x + 40, constraint_legend_y),
-        description,
-        font=SMALL_FONT,
+        (
+            item_x + 32,
+            item_y
+        ),
+        relation,
+        font=SMALL_BOLD,
         fill=DARK_GRAY
     )
 
-    desc_w, _ = text_size(
-        draw, description, SMALL_FONT
+    count_text = str(count)
+    count_width, _ = text_size(draw, count_text, SMALL_BOLD)
+    draw.text(
+        (
+            right_x - count_width,
+            item_y
+        ),
+        count_text,
+        font=SMALL_BOLD,
+        fill=color
     )
-    legend_x += desc_w + 85
 
+    kind_width, _ = text_size(draw, kind, SMALL_FONT)
+    draw.text(
+        (
+            right_x - count_width - 10 - kind_width,
+            item_y
+        ),
+        kind,
+        font=SMALL_FONT,
+        fill=GRAY
+    )
 
-# Expected-vs-actual validation is intentionally not rendered in the image.
-
-
-
-# Application dependency architecture is intentionally omitted from the
-# node/resource layout to keep the diagram clean.
 
 # UNASSIGNED / STOPPED RESOURCES
 
@@ -2964,7 +2938,12 @@ node_bottom = (
 
 if unassigned_resources:
 
-    strip_y = node_bottom + 8
+    strip_y = (
+        node_bottom
+        + CONSTRAINT_BAND_GAP
+        + CONSTRAINT_BAND_HEIGHT
+        + 8
+    )
 
     strip_x = SIDE_MARGIN
 
@@ -3123,6 +3102,10 @@ panel_y = (
     TOP_MARGIN
 
     + max_node_height
+
+    + CONSTRAINT_BAND_GAP
+
+    + CONSTRAINT_BAND_HEIGHT
 
     + UNASSIGNED_STRIP_HEIGHT
 
@@ -3426,11 +3409,11 @@ summary_lines = [
 
     (
 
-        "CORE anti-colocation",
+        "VIP workload colocation",
 
         str(
 
-            constraint_counts["core_anti_colocation"]
+            constraint_counts["vip_workload_colocation"]
 
         )
 
@@ -3880,25 +3863,33 @@ constraint_lines = [
 
     (
 
-        "Colocation",
+        "CORE → NFSREC",
 
-        constraint_counts["colocation"]
-
-    ),
-
-    (
-
-        "Anti-colocation",
-
-        constraint_counts["anti_colocation"]
+        constraint_counts["core_to_nfsrec_order"]
 
     ),
 
     (
 
-        "CORE anti-colocation",
+        "NFSREC → PICATA",
 
-        constraint_counts["core_anti_colocation"]
+        constraint_counts["nfsrec_to_picata_order"]
+
+    ),
+
+    (
+
+        "NFSETC → updater",
+
+        constraint_counts["etc_to_updater_order"]
+
+    ),
+
+    (
+
+        "VIP workload coloc.",
+
+        constraint_counts["vip_workload_colocation"]
 
     ),
 
@@ -3907,14 +3898,6 @@ constraint_lines = [
         "VIP anti-colocation",
 
         constraint_counts["vip_anti_colocation"]
-
-    ),
-
-    (
-
-        "Location",
-
-        constraint_counts["location"]
 
     )
 
@@ -4555,18 +4538,18 @@ health_checks = [
     (
 
         (
-            constraint_counts["core_anti_colocation"] > 0
+            constraint_counts["vip_workload_colocation"] > 0
             and constraint_counts["vip_anti_colocation"] > 0
         ),
 
-        "CORE + VIP anti-colocation configured"
+        "VIP workload and anti-colocation configured"
 
         if (
-            constraint_counts["core_anti_colocation"] > 0
+            constraint_counts["vip_workload_colocation"] > 0
             and constraint_counts["vip_anti_colocation"] > 0
         )
 
-        else "CORE/VIP anti-colocation missing"
+        else "VIP colocation constraints missing"
 
     )
 
@@ -4905,6 +4888,25 @@ print(
 print()
 
 print(
+    "Cluster type         : "
+    + CLUSTER_TYPE
+)
+print(
+    "Configured nodes     : "
+    + str(configured_node_count)
+    + "/"
+    + str(EXPECTED_NODE_COUNT)
+)
+if missing_configured_nodes > 0:
+    print(
+        "WARNING              : "
+        + str(missing_configured_nodes)
+        + " node(s) missing from configuration"
+    )
+
+print()
+
+print(
 
     "Resource groups      : "
 
@@ -5060,9 +5062,33 @@ print(
 
 print(
 
-    "    CORE anti-coloc  : "
+    "    VIP workload     : "
 
-    + str(constraint_counts["core_anti_colocation"])
+    + str(constraint_counts["vip_workload_colocation"])
+
+)
+
+print(
+
+    "    CORE -> NFSREC   : "
+
+    + str(constraint_counts["core_to_nfsrec_order"])
+
+)
+
+print(
+
+    "    NFSREC -> PICATA : "
+
+    + str(constraint_counts["nfsrec_to_picata_order"])
+
+)
+
+print(
+
+    "    NFSETC -> updater: "
+
+    + str(constraint_counts["etc_to_updater_order"])
 
 )
 
