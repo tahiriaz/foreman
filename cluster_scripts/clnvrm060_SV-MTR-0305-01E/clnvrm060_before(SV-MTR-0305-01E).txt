@@ -1,6 +1,6 @@
-systemctl enable pcsd.service --now
+systemctl enable pcsd.service && systemctl start pcsd && systemctl stop firewalld && systemctl disable firewalld
 
-pcs host auth tvsnvrapp049mp.mak.iss tvsnvrapp050mp.mak.iss tvsnvrapp051mp.mak.iss tvsnvrapp052mp.mak.iss tvsnvrapp053mp.mak.iss tvsnvrapp054mp.mak.iss tvsnvrapp055mp.mak.iss tvsnvrapp056mp.mak.iss -u hacluster -p "Th@les01"
+pcs host auth tvsnvrapp049mp.mak.iss tvsnvrapp050mp.mak.iss tvsnvrapp051mp.mak.iss tvsnvrapp052mp.mak.iss tvsnvrapp053mp.mak.iss tvsnvrapp054mp.mak.iss tvsnvrapp055mp.mak.iss -u hacluster -p "Th@les01"
 
 pcs cluster setup CLNVRM060 --start \
 tvsnvrapp049mp.mak.iss addr=10.101.44.59 addr=10.101.28.59 \
@@ -10,7 +10,6 @@ tvsnvrapp052mp.mak.iss addr=10.101.44.62 addr=10.101.28.62 \
 tvsnvrapp053mp.mak.iss addr=10.101.44.63 addr=10.101.28.63 \
 tvsnvrapp054mp.mak.iss addr=10.101.44.64 addr=10.101.28.64 \
 tvsnvrapp055mp.mak.iss addr=10.101.44.65 addr=10.101.28.65 \
-tvsnvrapp056mp.mak.iss addr=10.101.44.66 addr=10.101.28.66 \
 transport knet \
 link linknumber=0 link_priority=1 link linknumber=1 link_priority=0 \
 totem token=10000

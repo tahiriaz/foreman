@@ -955,6 +955,24 @@ def create_host(payload):
     )
 
 
+def delete_host(host_id):
+    """DELETE one host from Foreman by ID."""
+    return requests.delete(
+        _api_url(
+            "api/hosts/{}".format(
+                host_id
+            )
+        ),
+        auth=(
+            vars.USER,
+            vars.PASSWORD,
+        ),
+        headers=HEADERS,
+        verify=vars.VERIFY_SSL,
+        timeout=REQUEST_TIMEOUT,
+    )
+
+
 def post_job_invocation(payload):
     """Create a Foreman job invocation."""
     return requests.post(

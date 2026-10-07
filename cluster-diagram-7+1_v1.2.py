@@ -44,7 +44,7 @@ except ImportError:
 
 # ============================================================
 
-CLUSTER_IP = "clnvrm041.mak.iss"
+CLUSTER_IP = "clnvrm071.mak.iss"
 
 # This NVR cluster is designed as a 7+1 cluster:
 # 7 workload nodes + 1 additional node = 8 configured nodes expected.

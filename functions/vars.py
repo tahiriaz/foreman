@@ -53,10 +53,13 @@ LOG_FILE_PREFIX = 'provisioning'
 # Root scripts use these names so logging/report artifacts remain predictable.
 SCRIPT_ARTIFACT_PREFIXES = {
     'create_foreman_host': 'Foreman_Host',
+    'delete_foreman_hosts': 'Foreman_Host_Delete',
     'configure_ilo_RM': 'ILO_RM',
     'configure_ilo_BL': 'ILO_BL',
     'configure_raid_RM': 'RAID_RM',
     'configure_raid_BL': 'RAID_BL',
+    'reboot_blades_BL': 'BLADE_PXE_REBOOT',
+    'upgrade_spp_BL': 'BLADE_SPP_UPGRADE',
     'create_dns_records': 'DNS',
     'gen_oaconfig': 'OA_Config',
     'gen_clusterconfig': 'Cluster_Config',
@@ -687,6 +690,14 @@ RAID_BL_ISO_URL = (
 )
 
 RAID_BL_REPORT_PREFIX = 'RAID_BL'
+
+SPP_BL_ISO_URL = (
+    'https://infidsrep001sp.mak.iss:8443/'
+    'P45315_001_gen9spp-2021.10.1-Gen9SPP2021101.2022_0711.2.iso'
+)
+SPP_BL_UPGRADE_WAIT_MINUTES = 60
+SPP_BL_POWER_OFF_VERIFY_TIMEOUT_SECONDS = 120
+SPP_BL_POWER_OFF_POLL_INTERVAL_SECONDS = 10
 
 
 

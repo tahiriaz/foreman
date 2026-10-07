@@ -1,6 +1,6 @@
 systemctl enable pcsd.service --now
 
-pcs host auth tvsnvrapp057mp.mak.iss tvsnvrapp058mp.mak.iss tvsnvrapp059mp.mak.iss tvsnvrapp060mp.mak.iss tvsnvrapp061mp.mak.iss tvsnvrapp062mp.mak.iss tvsnvrapp063mp.mak.iss tvsnvrapp064mp.mak.iss -u hacluster -p "Th@les01"
+pcs host auth tvsnvrapp057mp.mak.iss tvsnvrapp058mp.mak.iss tvsnvrapp059mp.mak.iss tvsnvrapp060mp.mak.iss tvsnvrapp061mp.mak.iss tvsnvrapp062mp.mak.iss tvsnvrapp063mp.mak.iss -u hacluster -p "Th@les01"
 
 pcs cluster setup CLNVRM070 --start \
 tvsnvrapp057mp.mak.iss addr=10.101.44.67 addr=10.101.28.67 \
@@ -10,7 +10,6 @@ tvsnvrapp060mp.mak.iss addr=10.101.44.70 addr=10.101.28.70 \
 tvsnvrapp061mp.mak.iss addr=10.101.44.71 addr=10.101.28.71 \
 tvsnvrapp062mp.mak.iss addr=10.101.44.72 addr=10.101.28.72 \
 tvsnvrapp063mp.mak.iss addr=10.101.44.73 addr=10.101.28.73 \
-tvsnvrapp064mp.mak.iss addr=10.101.44.74 addr=10.101.28.74 \
 transport knet \
 link linknumber=0 link_priority=1 link linknumber=1 link_priority=0 \
 totem token=10000
