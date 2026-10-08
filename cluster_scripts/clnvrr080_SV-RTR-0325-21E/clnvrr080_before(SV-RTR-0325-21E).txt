@@ -1,4 +1,4 @@
-systemctl enable pcsd.service --now
+systemctl enable pcsd && systemctl start pcsd && systemctl stop firewalld && systemctl disable firewalld
 
 pcs host auth tvsissapp065rp.mak.iss tvsissapp066rp.mak.iss tvsissapp067rp.mak.iss tvsissapp068rp.mak.iss tvsissapp069rp.mak.iss tvsissapp070rp.mak.iss tvsissapp071rp.mak.iss tvsissapp072rp.mak.iss -u hacluster -p "Th@les01"
 

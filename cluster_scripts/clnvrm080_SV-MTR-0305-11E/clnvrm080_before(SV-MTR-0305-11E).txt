@@ -1,10 +1,8 @@
-systemctl enable pcsd.service --now
-
-pcs host auth tvsnvrapp065mp.mak.iss tvsnvrapp066mp.mak.iss tvsnvrapp067mp.mak.iss tvsnvrapp068mp.mak.iss tvsnvrapp069mp.mak.iss tvsnvrapp070mp.mak.iss tvsnvrapp071mp.mak.iss tvsnvrapp072mp.mak.iss -u hacluster -p "Th@les01"
+systemctl enable pcsd && systemctl start pcsd && systemctl stop firewalld && systemctl disable firewalld
+pcs host auth tvsnvrapp065mp.mak.iss tvsnvrapp067mp.mak.iss tvsnvrapp068mp.mak.iss tvsnvrapp069mp.mak.iss tvsnvrapp070mp.mak.iss tvsnvrapp071mp.mak.iss tvsnvrapp072mp.mak.iss -u hacluster -p "Th@les01"
 
 pcs cluster setup CLNVRM080 --start \
 tvsnvrapp065mp.mak.iss addr=10.101.44.75 addr=10.101.28.75 \
-tvsnvrapp066mp.mak.iss addr=10.101.44.76 addr=10.101.28.76 \
 tvsnvrapp067mp.mak.iss addr=10.101.44.77 addr=10.101.28.77 \
 tvsnvrapp068mp.mak.iss addr=10.101.44.78 addr=10.101.28.78 \
 tvsnvrapp069mp.mak.iss addr=10.101.44.79 addr=10.101.28.79 \
@@ -24,7 +22,6 @@ pcs resource defaults update resource-stickiness=INFINITY migration-threshold=3 
 
 # Fencing Configuration
 pcs stonith create fence_tvsnvrapp065mp.mak.iss fence_ilo4 ip=10.101.18.109 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp065mp.mak.iss op monitor interval=600s
-pcs stonith create fence_tvsnvrapp066mp.mak.iss fence_ilo4 ip=10.101.18.110 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp066mp.mak.iss op monitor interval=600s
 pcs stonith create fence_tvsnvrapp067mp.mak.iss fence_ilo4 ip=10.101.18.111 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp067mp.mak.iss op monitor interval=600s
 pcs stonith create fence_tvsnvrapp068mp.mak.iss fence_ilo4 ip=10.101.18.112 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp068mp.mak.iss op monitor interval=600s
 pcs stonith create fence_tvsnvrapp069mp.mak.iss fence_ilo4 ip=10.101.18.113 username=hpilofence password="Th@les01" privlvl=operator pcmk_host_list=tvsnvrapp069mp.mak.iss op monitor interval=600s
@@ -34,7 +31,6 @@ pcs stonith create fence_tvsnvrapp072mp.mak.iss fence_ilo4 ip=10.101.18.116 user
 
 # Node Utilization Limits
 pcs node utilization tvsnvrapp065mp.mak.iss rcount=14
-pcs node utilization tvsnvrapp066mp.mak.iss rcount=14
 pcs node utilization tvsnvrapp067mp.mak.iss rcount=14
 pcs node utilization tvsnvrapp068mp.mak.iss rcount=14
 pcs node utilization tvsnvrapp069mp.mak.iss rcount=14
